@@ -16,6 +16,8 @@ ARCHIVE_FILE="$WORK_DIR/$ARCHIVE_NAME"
 ENCRYPTED_FILE="$BACKUP_DIR/$ARCHIVE_NAME.enc"
 AUTH_FILE="$ENCRYPTED_FILE.hmac"
 STATUS=failed
+QUIESCED=0
+RUNNING_WRITE_SERVICES=()
 
 notify() {
   local suffix="${1:-}"
@@ -24,6 +26,13 @@ notify() {
 
 cleanup() {
   local exit_code=$?
+  if [[ "$QUIESCED" == 1 && "${#RUNNING_WRITE_SERVICES[@]}" -gt 0 ]]; then
+    if ! "${COMPOSE[@]}" up -d --no-deps "${RUNNING_WRITE_SERVICES[@]}" >/dev/null; then
+      echo "Failed to resume Shopware services after backup" >&2
+      exit_code=1
+      STATUS=failed
+    fi
+  fi
   rm -rf "$WORK_DIR"
   rm -f "$ENCRYPTED_FILE" "$AUTH_FILE"
   if [[ "$STATUS" != success || "$exit_code" -ne 0 ]]; then notify /fail; fi
@@ -32,11 +41,32 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+quiesce_writes() {
+  local service running
+  running="$("${COMPOSE[@]}" ps --services --status running 2>/dev/null || true)"
+  for service in app worker scheduler; do
+    if printf '%s\n' "$running" | grep -qx "$service"; then RUNNING_WRITE_SERVICES+=("$service"); fi
+  done
+  if [[ "${#RUNNING_WRITE_SERVICES[@]}" -gt 0 ]]; then
+    echo "Quiescing Shopware write services for a coherent database/files snapshot"
+    "${COMPOSE[@]}" stop --timeout 60 "${RUNNING_WRITE_SERVICES[@]}"
+    QUIESCED=1
+  fi
+}
+
+resume_writes() {
+  if [[ "$QUIESCED" == 1 && "${#RUNNING_WRITE_SERVICES[@]}" -gt 0 ]]; then
+    "${COMPOSE[@]}" up -d --no-deps "${RUNNING_WRITE_SERVICES[@]}"
+    QUIESCED=0
+  fi
+}
+
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 notify /start
+quiesce_writes
 
-echo "Copying public and private Shopware files to versioned backup storage"
+echo "Copying quiesced public and private Shopware files to versioned backup storage"
 export RCLONE_CONFIG_SOURCE_TYPE=s3
 export RCLONE_CONFIG_SOURCE_PROVIDER=Other
 export RCLONE_CONFIG_SOURCE_ACCESS_KEY_ID="$S3_BACKUP_READER_ACCESS_KEY"
@@ -62,12 +92,13 @@ echo "Creating consistent database dump"
   mariadb-dump --single-transaction --quick --routines --events --triggers -u"$DB_USER" "$DB_NAME" \
   | gzip -9 > "$DB_FILE"
 gzip -t "$DB_FILE"
+resume_writes
 
 echo "Creating configuration archive"
 tar -czf "$CONFIG_FILE" .env.compose .env.runtime .env.init compose.yaml Caddyfile deploy.sh status.sh rollback.sh
 tar -tzf "$CONFIG_FILE" >/dev/null
 
-printf 'project=%s\nenvironment=%s\ncreated=%s\ndatabase=%s\nconfig=%s\n' \
+printf 'project=%s\nenvironment=%s\ncreated=%s\nwrite_services_quiesced=true\ndatabase=%s\nconfig=%s\n' \
   "$PROJECT_SLUG" "$ENVIRONMENT" "$(date -Iseconds)" "$(basename "$DB_FILE")" "$(basename "$CONFIG_FILE")" \
   > "$WORK_DIR/manifest.txt"
 tar -C "$WORK_DIR" -czf "$ARCHIVE_FILE" "$(basename "$DB_FILE")" "$(basename "$CONFIG_FILE")" manifest.txt

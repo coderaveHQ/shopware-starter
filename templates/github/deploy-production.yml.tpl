@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: read
 
 concurrency:
   group: production-deploy
@@ -29,6 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with: {persist-credentials: false}
+      - name: Require successful CI for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SUCCESSFUL_RUNS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=production&head_sha=${GITHUB_SHA}&status=completed" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+          [[ "$SUCCESSFUL_RUNS" -ge 1 ]] || { echo "No successful CI run exists for $GITHUB_SHA" >&2; exit 1; }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Validate locked dependencies
         run: |
@@ -66,9 +74,17 @@ jobs:
           ignore-unfixed: false
           exit-code: "1"
       - name: Publish scanned image
+        id: publish
         run: |
-          docker push "${IMAGE_NAME}:${IMAGE_TAG}"
+          set -euo pipefail
+          docker push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/shopware-image-push.txt
+          PUSHED_DIGEST="$(sed -nE 's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' /tmp/shopware-image-push.txt | tail -n1)"
+          [[ "$PUSHED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          DIGEST_FORMAT=$'\x7b\x7b.Manifest.Digest\x7d\x7d'
+          REGISTRY_DIGEST="$(docker buildx imagetools inspect "${IMAGE_NAME}:${IMAGE_TAG}" --format "$DIGEST_FORMAT")"
+          [[ "$REGISTRY_DIGEST" == "$PUSHED_DIGEST" ]]
           docker push "${IMAGE_NAME}:production-latest"
+          printf 'image=%s@%s\n' "$IMAGE_NAME" "$PUSHED_DIGEST" >> "$GITHUB_OUTPUT"
       - name: Prepare verified SSH
         run: |
           set -euo pipefail
@@ -85,5 +101,5 @@ jobs:
           SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           set -euo pipefail
-          IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
-          printf '%s' "${{ github.token }}" | ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "/usr/local/sbin/shopware-deploy-production $IMAGE $GITHUB_ACTOR"
+          IMAGE="${{ steps.publish.outputs.image }}"
+          printf '%s' "${{ github.token }}" | ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "/usr/local/sbin/shopware-deploy-production $IMAGE $GITHUB_SHA $GITHUB_ACTOR"

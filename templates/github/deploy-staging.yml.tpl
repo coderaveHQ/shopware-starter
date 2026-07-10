@@ -1,13 +1,15 @@
 name: Deploy Staging
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
     branches: [staging]
-  workflow_dispatch:
+    types: [completed]
 
 permissions:
   contents: read
   packages: write
+  actions: read
 
 concurrency:
   group: staging-deploy
@@ -15,17 +17,20 @@ concurrency:
 
 env:
   IMAGE_NAME: {{GHCR_IMAGE|yaml}}
-  IMAGE_TAG: staging-${{ github.sha }}
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+  IMAGE_TAG: staging-${{ github.event.workflow_run.head_sha }}
 
 jobs:
   build-scan-deploy:
-    if: github.ref == 'refs/heads/staging'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'staging'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: staging
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with: {persist-credentials: false}
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Validate locked dependencies
         run: |
@@ -63,9 +68,17 @@ jobs:
           ignore-unfixed: false
           exit-code: "1"
       - name: Publish scanned image
+        id: publish
         run: |
-          docker push "${IMAGE_NAME}:${IMAGE_TAG}"
+          set -euo pipefail
+          docker push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/shopware-image-push.txt
+          PUSHED_DIGEST="$(sed -nE 's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' /tmp/shopware-image-push.txt | tail -n1)"
+          [[ "$PUSHED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          DIGEST_FORMAT=$'\x7b\x7b.Manifest.Digest\x7d\x7d'
+          REGISTRY_DIGEST="$(docker buildx imagetools inspect "${IMAGE_NAME}:${IMAGE_TAG}" --format "$DIGEST_FORMAT")"
+          [[ "$REGISTRY_DIGEST" == "$PUSHED_DIGEST" ]]
           docker push "${IMAGE_NAME}:staging-latest"
+          printf 'image=%s@%s\n' "$IMAGE_NAME" "$PUSHED_DIGEST" >> "$GITHUB_OUTPUT"
       - name: Prepare verified SSH
         run: |
           set -euo pipefail
@@ -82,5 +95,5 @@ jobs:
           SSH_USER: ${{ secrets.STAGING_SSH_USER }}
         run: |
           set -euo pipefail
-          IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
-          printf '%s' "${{ github.token }}" | ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "/usr/local/sbin/shopware-deploy-staging $IMAGE $GITHUB_ACTOR"
+          IMAGE="${{ steps.publish.outputs.image }}"
+          printf '%s' "${{ github.token }}" | ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "/usr/local/sbin/shopware-deploy-staging $IMAGE $DEPLOY_SHA $GITHUB_ACTOR"

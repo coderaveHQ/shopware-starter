@@ -6,7 +6,11 @@ chmod 600 /tmp/staging-server.env
 SHOPWARE_INFRA_TEST_MODE=1 bash scripts/01-setup-staging-server.sh --config /tmp/staging-server.env --test-mode --dry-run
 [[ ! -e /opt/shopware/template-test/staging ]]
 [[ ! -e /usr/local/sbin/shopware-deploy-staging ]]
-SHOPWARE_INFRA_TEST_MODE=1 bash scripts/01-setup-staging-server.sh --config /tmp/staging-server.env --test-mode
+mkdir -p /root/shopware-setup
+cp /tmp/staging-server.env /root/shopware-setup/staging-server.env
+chmod 600 /root/shopware-setup/staging-server.env
+SHOPWARE_INFRA_TEST_MODE=1 bash scripts/01-setup-staging-server.sh --config /root/shopware-setup/staging-server.env --test-mode
+[[ ! -e /root/shopware-setup/staging-server.env ]]
 [[ -f /opt/shopware/template-test/staging/.env.runtime ]]
 [[ -f /opt/shopware/template-test/staging/.env.compose ]]
 [[ -f /opt/shopware/template-test/staging/.env.backup ]]

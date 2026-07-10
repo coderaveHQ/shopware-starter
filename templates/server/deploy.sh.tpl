@@ -3,13 +3,15 @@ set -Eeuo pipefail
 umask 077
 
 INSTALL_DIR={{INSTALL_DIR|shell}}
-EXPECTED_IMAGE_PREFIX={{GHCR_IMAGE|shell}}:{{ENVIRONMENT|shell}}-
+EXPECTED_IMAGE_REPOSITORY={{GHCR_IMAGE|shell}}
 ENVIRONMENT={{ENVIRONMENT|shell}}
 PRIMARY_DOMAIN={{PRIMARY_DOMAIN|shell}}
 IMAGE="${1:-}"
-[[ "$IMAGE" == "$EXPECTED_IMAGE_PREFIX"* ]] || { echo "Invalid immutable deployment image: $IMAGE" >&2; exit 1; }
-IMAGE_DIGEST="${IMAGE#"$EXPECTED_IMAGE_PREFIX"}"
-[[ "$IMAGE_DIGEST" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid immutable deployment image: $IMAGE" >&2; exit 1; }
+COMMIT_SHA="${2:-}"
+[[ "$IMAGE" == "$EXPECTED_IMAGE_REPOSITORY@sha256:"* ]] || { echo "Invalid deployment image repository: $IMAGE" >&2; exit 1; }
+IMAGE_DIGEST="${IMAGE#"$EXPECTED_IMAGE_REPOSITORY@sha256:"}"
+[[ "$IMAGE_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid immutable deployment image: $IMAGE" >&2; exit 1; }
+[[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid deployment commit: $COMMIT_SHA" >&2; exit 1; }
 
 cd "$INSTALL_DIR"
 COMPOSE=(docker compose --env-file .env.compose -f compose.yaml)
@@ -65,11 +67,6 @@ if [[ "$TABLE_COUNT" =~ ^[0-9]+$ && "$TABLE_COUNT" -gt 0 ]]; then
   systemctl start --wait "shopware-$ENVIRONMENT-backup.service"
 fi
 
-mkdir -p deployment-history
-printf '%s\t%s\n' "$(date -Iseconds)" "$CURRENT_IMAGE" >> deployment-history/images.log
-chmod 700 deployment-history
-chmod 600 deployment-history/images.log
-
 set_shopware_image "$IMAGE"
 "${COMPOSE[@]}" pull init app worker scheduler
 "${COMPOSE[@]}" up --force-recreate --abort-on-container-exit --exit-code-from init init
@@ -95,5 +92,10 @@ tmp.chmod(0o640)
 tmp.replace(path)
 PY
 
+mkdir -p deployment-history
+printf '%s\t%s\t%s\n' "$(date -Iseconds)" "$COMMIT_SHA" "$IMAGE" >> deployment-history/images.log
+chmod 700 deployment-history
+chmod 600 deployment-history/images.log
+
 trap - ERR
-echo "Deployment healthy for $ENVIRONMENT at $(date -Iseconds)"
+echo "Deployment healthy for $ENVIRONMENT at commit $COMMIT_SHA / $IMAGE / $(date -Iseconds)"

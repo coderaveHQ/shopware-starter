@@ -43,9 +43,9 @@ This is not a high-availability architecture. A VPS failure causes downtime. Bac
 - The initial SSH host key must match an independently obtained ED25519 SHA-256 fingerprint.
 - Root SSH, passwords, forwarding and tunnelling are disabled after fresh-server setup.
 - The deployment user has no shell path to Docker and accepts only a forced, root-owned deployment command.
-- Deployments accept only the exact environment image tagged with a 40-character Git commit SHA.
-- Production deployment is manual, requires typed confirmation and is expected to have a GitHub required reviewer.
-- Composer advisories, secret scanning and HIGH/CRITICAL container findings block CI before an image is published.
+- Deployments accept only an exact `sha256` registry digest, verify that the environment/commit tag resolves to that digest, and record the corresponding 40-character Git commit SHA separately.
+- Staging deployment starts only after successful CI for the exact staging commit. Production deployment is manual, verifies successful CI for the exact commit, requires typed confirmation and is expected to have a GitHub required reviewer.
+- Composer advisories, secret scanning and HIGH/CRITICAL container findings block CI before an image is published or deployed.
 - Existing databases receive an encrypted offsite backup before deployment. Database migrations are never automatically reversed.
 - Backup and restore-verification timers have separate monitoring endpoints.
 
@@ -105,7 +105,7 @@ No script should be run against a VPS containing existing workloads. The server 
 | `02-setup-production-server.sh` | One-shot hardened production VPS setup | Yes |
 | `04-setup-s3-storage.sh` | Provisions and actively verifies isolated object storage | Yes, unless `--dry-run` |
 | `05-setup-repo.sh` | Creates the exact Shopware production project and hardened overlays once | Yes |
-| `06-deploy-setup-files.sh` | Host-key-verified setup transfer; runs remotely only with `--run` | Network/file transfer |
+| `06-deploy-setup-files.sh` | Host-key-verified setup transfer; requires explicit `--run`, and the remote plaintext server config self-removes on exit | Network/file transfer |
 | `07-run-tests.sh` | Static tests by default; Docker and real-server tests are explicit | No by default |
 | `08-preflight.sh` | Local invariants; without `--local-only`, also checks S3 evidence and GitHub controls | No |
 | `09-clean-sensitive-output.sh` | Removes local plaintext setup material after explicit confirmation | Yes |

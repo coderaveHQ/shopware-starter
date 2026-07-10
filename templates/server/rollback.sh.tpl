@@ -2,12 +2,12 @@
 set -Eeuo pipefail
 
 INSTALL_DIR={{INSTALL_DIR|shell}}
-EXPECTED_IMAGE_PREFIX={{GHCR_IMAGE|shell}}:{{ENVIRONMENT|shell}}-
+EXPECTED_IMAGE_REPOSITORY={{GHCR_IMAGE|shell}}
 IMAGE="${1:-}"
 ACK="${2:-}"
-[[ "$IMAGE" == "$EXPECTED_IMAGE_PREFIX"* ]] || { echo "Invalid rollback image" >&2; exit 1; }
-IMAGE_DIGEST="${IMAGE#"$EXPECTED_IMAGE_PREFIX"}"
-[[ "$IMAGE_DIGEST" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid rollback image" >&2; exit 1; }
+[[ "$IMAGE" == "$EXPECTED_IMAGE_REPOSITORY@sha256:"* ]] || { echo "Invalid rollback image repository" >&2; exit 1; }
+IMAGE_DIGEST="${IMAGE#"$EXPECTED_IMAGE_REPOSITORY@sha256:"}"
+[[ "$IMAGE_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid rollback image digest" >&2; exit 1; }
 [[ "$ACK" == acknowledge-database-compatibility ]] || { echo "Rollback requires explicit database-compatibility acknowledgement" >&2; exit 1; }
 
 cd "$INSTALL_DIR"

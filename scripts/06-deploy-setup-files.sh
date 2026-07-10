@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO_ROOT="$(cd "$SC
 CONFIG_FILE="$REPO_ROOT/generated/customer.env"; REMOTE_DIR="/root/shopware-setup"
 
 usage() { cat <<USAGE
-Usage: bash scripts/06-deploy-setup-files.sh --target staging|production|all [--config generated/customer.env] [--run] [--dry-run]
+Usage: bash scripts/06-deploy-setup-files.sh --target staging|production|all [--config generated/customer.env] (--run|--dry-run)
 
 The first SSH connection is allowed only when the scanned ED25519 host key
 matches the independently supplied SHA256 fingerprint.
@@ -64,6 +64,7 @@ if [[ "$DRY_RUN" == 1 ]]; then
   ok "Transfer-Dry-run ohne Netzwerkzugriff oder Dateimutation abgeschlossen"
   exit 0
 fi
+[[ "$RUN_REMOTE" == 1 ]] || die "Netzwerktransfer erfordert --run. Für eine Vorschau ausschließlich --dry-run verwenden."
 
 deploy_one() {
   local env_name="$1" prefix host scp_host root_user root_port root_key fingerprint env_file setup_script s3_marker initial_known admin_key final_known summary_tmp vault known_hosts_value
@@ -93,8 +94,6 @@ deploy_one() {
   copy_to_remote "$host" "$root_port" "$root_user" "$root_key" "$initial_known" "$REPO_ROOT/templates" "$REMOTE_DIR/"
   scp -P "$root_port" -i "$root_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$initial_known" "$env_file" "$root_user@$scp_host:$REMOTE_DIR/${env_name}-server.env"
   run_remote_command "$host" "$root_port" "$root_user" "$root_key" "$initial_known" "chmod 600 '$REMOTE_DIR/${env_name}-server.env' && chmod -R u+rwX '$REMOTE_DIR/scripts' '$REMOTE_DIR/templates'"
-
-  if [[ "$RUN_REMOTE" != 1 ]]; then warn "$env_name: Dateien verifiziert kopiert; Server-Setup wurde ohne --run nicht gestartet."; return 0; fi
 
   step "$env_name: One-shot-Server-Setup ausführen"
   run_remote_command "$host" "$root_port" "$root_user" "$root_key" "$initial_known" "cd '$REMOTE_DIR' && bash '$setup_script' --config '$REMOTE_DIR/${env_name}-server.env'"

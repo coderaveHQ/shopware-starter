@@ -158,6 +158,32 @@ check_ubuntu() {
   ok "Unterstütztes 64-Bit-Ubuntu erkannt: $pretty_name"
 }
 
+check_server_resources() {
+  local memory_kb disk_kb cpu_count disk_path="/"
+  local minimum_memory_kb=$((8 * 1024 * 1024)) minimum_disk_kb=$((10 * 1024 * 1024))
+  if [[ -d /opt ]]; then disk_path=/opt; fi
+
+  if [[ "${TEST_MODE:-0}" == 1 ]]; then
+    if [[ -z "${SHOPWARE_INFRA_TEST_MEMORY_KB:-}" || -z "${SHOPWARE_INFRA_TEST_DISK_KB:-}" || -z "${SHOPWARE_INFRA_TEST_CPU_COUNT:-}" ]]; then
+      ok "TEST_MODE: Hardware-Ressourcenprüfung übersprungen"
+      return 0
+    fi
+    memory_kb="$SHOPWARE_INFRA_TEST_MEMORY_KB"
+    disk_kb="$SHOPWARE_INFRA_TEST_DISK_KB"
+    cpu_count="$SHOPWARE_INFRA_TEST_CPU_COUNT"
+  else
+    memory_kb="$(awk '$1=="MemTotal:" {print $2}' /proc/meminfo)"
+    disk_kb="$(df -Pk "$disk_path" | awk 'NR==2 {print $4}')"
+    cpu_count="$(getconf _NPROCESSORS_ONLN)"
+  fi
+
+  [[ "$memory_kb" =~ ^[0-9]+$ && "$disk_kb" =~ ^[0-9]+$ && "$cpu_count" =~ ^[0-9]+$ ]] || die "Server-Ressourcen konnten nicht zuverlässig ermittelt werden."
+  [[ "$memory_kb" -ge "$minimum_memory_kb" ]] || die "Shopware benötigt mindestens 8 GiB RAM; erkannt: $((memory_kb / 1024)) MiB."
+  [[ "$disk_kb" -ge "$minimum_disk_kb" ]] || die "Shopware benötigt vor dem Setup mindestens 10 GiB freien Speicher; erkannt: $((disk_kb / 1024)) MiB auf $disk_path."
+  if [[ "$cpu_count" -lt 4 ]]; then warn "Shopware empfiehlt mindestens vier CPU-Kerne; erkannt: $cpu_count."; fi
+  ok "Server-Ressourcen ausreichend: $((memory_kb / 1024)) MiB RAM, $((disk_kb / 1024)) MiB frei, $cpu_count CPU-Kerne"
+}
+
 check_port_free() {
   local port="$1"
   if command_exists ss && ss -ltn "sport = :$port" | grep -q ":$port"; then

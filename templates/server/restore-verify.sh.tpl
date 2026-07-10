@@ -82,6 +82,7 @@ tar --no-same-owner --no-same-permissions -xzf "$DECRYPTED_FILE" -C "$WORK_DIR"
 DB_DUMP="$(find "$WORK_DIR" -maxdepth 1 -name '*-db-*.sql.gz' -type f -print -quit)"
 CONFIG_ARCHIVE="$(find "$WORK_DIR" -maxdepth 1 -name '*-config-*.tar.gz' -type f -print -quit)"
 [[ -n "$DB_DUMP" && -n "$CONFIG_ARCHIVE" && -f "$WORK_DIR/manifest.txt" ]] || { echo "Backup archive incomplete" >&2; exit 1; }
+grep -Fxq 'write_services_quiesced=true' "$WORK_DIR/manifest.txt" || { echo "Backup was not created from a quiesced database/files snapshot" >&2; exit 1; }
 gzip -t "$DB_DUMP"
 tar -tzf "$CONFIG_ARCHIVE" > "$WORK_DIR/config-members.txt"
 python3 - "$WORK_DIR/config-members.txt" <<'PY'

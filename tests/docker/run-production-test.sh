@@ -6,7 +6,18 @@ chmod 600 /tmp/production-server.env
 SHOPWARE_INFRA_TEST_MODE=1 bash scripts/02-setup-production-server.sh --config /tmp/production-server.env --test-mode --dry-run
 [[ ! -e /opt/shopware/template-test/production ]]
 [[ ! -e /usr/local/sbin/shopware-deploy-production ]]
-SHOPWARE_INFRA_TEST_MODE=1 bash scripts/02-setup-production-server.sh --config /tmp/production-server.env --test-mode
+mkdir -p /root/shopware-setup
+cp tests/fixtures/staging-server.env /root/shopware-setup/invalid-production-server.env
+chmod 600 /root/shopware-setup/invalid-production-server.env
+if SHOPWARE_INFRA_TEST_MODE=1 bash scripts/02-setup-production-server.sh --config /root/shopware-setup/invalid-production-server.env --test-mode; then
+  echo "Production setup unexpectedly accepted staging config" >&2
+  exit 1
+fi
+[[ ! -e /root/shopware-setup/invalid-production-server.env ]]
+cp /tmp/production-server.env /root/shopware-setup/production-server.env
+chmod 600 /root/shopware-setup/production-server.env
+SHOPWARE_INFRA_TEST_MODE=1 bash scripts/02-setup-production-server.sh --config /root/shopware-setup/production-server.env --test-mode
+[[ ! -e /root/shopware-setup/production-server.env ]]
 [[ -f /opt/shopware/template-test/production/.env.runtime ]]
 [[ -f /opt/shopware/template-test/production/.env.compose ]]
 [[ -f /opt/shopware/template-test/production/.env.backup ]]

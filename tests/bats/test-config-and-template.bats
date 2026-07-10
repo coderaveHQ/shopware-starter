@@ -65,3 +65,16 @@ teardown() { rm -rf "$TEST_TMPDIR"; }
   [ "$status" -ne 0 ]
   [ ! -e "$TEST_TMPDIR/pwned" ]
 }
+
+@test "check_server_resources enforces Shopware memory and disk minimums" {
+  TEST_MODE=1
+  SHOPWARE_INFRA_TEST_MEMORY_KB=$((8 * 1024 * 1024))
+  SHOPWARE_INFRA_TEST_DISK_KB=$((10 * 1024 * 1024))
+  SHOPWARE_INFRA_TEST_CPU_COUNT=4
+  run check_server_resources
+  [ "$status" -eq 0 ]
+
+  SHOPWARE_INFRA_TEST_MEMORY_KB=$((8 * 1024 * 1024 - 1))
+  run check_server_resources
+  [ "$status" -ne 0 ]
+}

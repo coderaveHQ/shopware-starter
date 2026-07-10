@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Hardened one-shot implementation for staging/production server setup.
 
+SERVER_SETUP_CONFIG_CLEANUP_FILE=""
+
+cleanup_plaintext_setup_config() {
+  local exit_code=$? file="${SERVER_SETUP_CONFIG_CLEANUP_FILE:-}"
+  if [[ -n "$file" && -f "$file" && ! -L "$file" ]]; then
+    if command_exists shred; then shred -u -- "$file" 2>/dev/null || rm -f -- "$file"; else rm -f -- "$file"; fi
+  fi
+  return "$exit_code"
+}
+
 write_runtime_files() {
   if [[ "$DRY_RUN" == 1 ]]; then log "[DRY-RUN] Getrennte Runtime-, Init-, Compose- und Backup-Dateien schreiben"; return 0; fi
   [[ ! -L "$INSTALL_BASE_DIR" && ! -L "$INSTALL_DIR" ]] || die "Symlinks im Installationspfad sind verboten."
@@ -86,12 +96,14 @@ start_infra_containers() {
 
 setup_shopware_server() {
   local config_file="$1" expected="$2" marker in_progress project_dir deploy_key_options
+  if [[ "${DRY_RUN:-0}" != 1 && "$config_file" == /root/shopware-setup/* ]]; then SERVER_SETUP_CONFIG_CLEANUP_FILE="$config_file"; fi
+  trap cleanup_plaintext_setup_config EXIT
   EXPECTED_ENVIRONMENT="$expected"; export EXPECTED_ENVIRONMENT
   # Consumed by step() from logging.sh.
   if [[ "$DRY_RUN" == 1 ]]; then SHOPWARE_INFRA_TOTAL=3; else SHOPWARE_INFRA_TOTAL=14; fi
   export SHOPWARE_INFRA_TOTAL
   step "Konfiguration sicher laden"; assert_private_file "$config_file"; load_env_file "$config_file" "${SERVER_CONFIG_KEYS[@]}"; validate_server_config
-  step "Fresh-VPS und Betriebssystem prüfen"; require_root; check_ubuntu; check_port_free 80; check_port_free 443
+  step "Fresh-VPS, Betriebssystem und Ressourcen prüfen"; require_root; check_ubuntu; check_server_resources; check_port_free 80; check_port_free 443
   project_dir="$INSTALL_BASE_DIR/$PROJECT_SLUG"
   marker="$INSTALL_DIR/.infrastructure-initialized"; in_progress="$INSTALL_DIR/.setup-in-progress"
   [[ ! -L "$INSTALL_BASE_DIR" && ! -L "$project_dir" && ! -L "$INSTALL_DIR" && ! -L "$marker" && ! -L "$in_progress" ]] || die "Symlink in kontrolliertem Installationspfad erkannt."

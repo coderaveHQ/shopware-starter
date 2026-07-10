@@ -35,3 +35,22 @@
   [ "$before" = "$after" ]
   rm -rf "$isolated_repo"
 }
+
+@test "deployment accepts registry digests only and is CI gated" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  grep -q '@sha256:' "$REPO_ROOT/templates/server/deploy-wrapper.sh.tpl"
+  ! grep -q 'EXPECTED_PREFIX=.*ENVIRONMENT' "$REPO_ROOT/templates/server/deploy-wrapper.sh.tpl"
+  grep -q 'workflow_run:' "$REPO_ROOT/templates/github/deploy-staging.yml.tpl"
+  grep -q 'Require successful CI for this exact commit' "$REPO_ROOT/templates/github/deploy-production.yml.tpl"
+}
+
+@test "backup quiesces write services before the file and database snapshot" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  quiesce_line="$(grep -n '^quiesce_writes$' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"
+  sync_line="$(grep -n 'rclone sync.*S3_PUBLIC_BUCKET' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"
+  dump_line="$(grep -n 'mariadb-dump' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"
+  resume_line="$(grep -n '^resume_writes$' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"
+  [ "$quiesce_line" -lt "$sync_line" ]
+  [ "$sync_line" -lt "$dump_line" ]
+  [ "$dump_line" -lt "$resume_line" ]
+}

@@ -59,7 +59,7 @@ The provisioning credential is local-only. It configures bucket encryption, vers
 
 Complete these before running a mutating script:
 
-- Two fresh dedicated 64-bit Ubuntu VPSs, one staging and one production. Supported/tested here: Ubuntu 24.04 LTS and 26.04 LTS.
+- Two fresh dedicated 64-bit Ubuntu VPSs, one staging and one production. Supported/tested here: Ubuntu 24.04 LTS and 26.04 LTS. Each server must have at least 8 GiB RAM and 10 GiB free disk; four CPU cores and 16 GiB RAM are recommended. The setup verifies RAM and disk before its first mutation and warns below four CPU cores.
 - DNS A/AAAA records for the two distinct domains. Ports 80 and 443 must reach only the intended VPS.
 - An initial root SSH key for each fresh VPS.
 - Each VPS's ED25519 SHA-256 host fingerprint obtained independently from the provider console, not from the first network connection.
@@ -220,7 +220,7 @@ bash scripts/08-preflight.sh
 
 Staging deploys on a push to `staging`. Production never deploys on push: manually dispatch `Deploy Production` from the protected `production` branch, type `deploy-production`, and obtain the environment approval.
 
-All GitHub Actions are pinned to complete commit SHAs. The published deployment image is tagged `<environment>-<40-character-git-sha>`. Rolling `latest` tags are convenience references only and are never accepted by the server deploy gate.
+All GitHub Actions are pinned to complete commit SHAs. CI images are labeled `<environment>-<40-character-git-sha>`, but deployment uses only the registry-returned `ghcr.io/...@sha256:<64-hex>` digest. The server verifies that the environment/commit tag currently resolves to the supplied digest, then records the Git SHA as separate provenance. Rolling `latest` tags are convenience references only and are never accepted by the server deploy gate. Staging is triggered only by successful CI for the exact staging commit; production independently verifies a successful CI run for its exact dispatched commit.
 
 ## 10. Fresh VPS setup
 
@@ -235,6 +235,8 @@ The setup command is:
 ```bash
 bash scripts/06-deploy-setup-files.sh --target staging --run
 ```
+
+There is no copy-only mode. Omitting `--run` fails before the first network operation. Once remote execution begins, the plaintext `staging-server.env` or `production-server.env` removes itself on every normal or error exit; the remaining non-secret setup bundle is removed after the verified admin connection succeeds.
 
 Before the first SSH connection, the scanned ED25519 host key must exactly match the independently supplied fingerprint. The one-shot remote setup then:
 
@@ -265,14 +267,14 @@ Only after the entire staging lifecycle succeeds should production be prepared w
 
 ## 11. Deployment behavior
 
-The GitHub deploy job builds locally, scans before publishing, pushes the immutable SHA tag, then sends the GitHub token through SSH standard input. The deploy account's forced command accepts only the root-owned wrapper, exact environment image prefix and GitHub actor syntax. The wrapper logs into GHCR, invokes the root-owned deployment script and logs out on exit.
+After exact-commit CI succeeds, the GitHub deploy job builds locally, scans before publishing, pushes the commit-labeled image, verifies the digest returned by the registry and sends that digest plus the Git SHA through the forced SSH command. The deploy account accepts only the root-owned wrapper, exact GHCR repository, a 64-hex `sha256` digest, a 40-hex commit and GitHub actor syntax. The wrapper logs into GHCR, invokes the root-owned deployment script and logs out on exit.
 
 The server deployment:
 
 1. Starts/waits for the pinned infrastructure services.
 2. If the database already contains Shopware tables, requires a successful encrypted offsite backup.
 3. Records the previous image in root-controlled history.
-4. Pulls only app/init/worker/scheduler for the exact image; infrastructure does not drift with an app deploy.
+4. Pulls only app/init/worker/scheduler by the exact registry digest; infrastructure does not drift with an app deploy.
 5. Runs the official Shopware Deployment Helper in the init container.
 6. Starts and verifies app, worker, scheduler, Varnish and Caddy.
 7. Requires successful HTTPS storefront and `/admin` responses plus a Shopware CLI check.
@@ -282,20 +284,24 @@ If failure occurs before database migrations complete, the image setting is rest
 
 After the first staging deployment, rerun the same host command with `--testinfra` instead of `--testinfra-predeploy`; the full scope requires the Shopware app, workers, HTTPS and both activated timers.
 
-Manual rollback requires an exact prior environment/SHA image and the literal acknowledgement `acknowledge-database-compatibility`. It never reverses database migrations. Confirm compatibility in the relevant official Shopware update notes first.
+Manual rollback requires an exact prior registry digest from the root-controlled deployment history and the literal acknowledgement `acknowledge-database-compatibility`. It never reverses database migrations. Confirm compatibility in the relevant official Shopware update notes first.
 
 ## 12. Backups and restore verification
 
 The root-only backup service:
 
+- stops every currently running write-capable Shopware app, worker and scheduler container and records which services must be resumed;
 - synchronizes current public/private Shopware files to dedicated backup prefixes using the read-only runtime reader and backup writer;
 - verifies the source and destination trees;
-- creates a consistent MariaDB dump and configuration archive;
+- creates the MariaDB dump while writes remain quiesced, then resumes exactly the services that were running before the snapshot;
+- creates a configuration archive;
 - encrypts the archive with AES-256-CBC, PBKDF2 and 600,000 iterations using the environment-specific passphrase;
 - authenticates the encrypted archive with HMAC-SHA-256 (encrypt-then-MAC);
 - uploads the encrypted archive and HMAC, verifies both objects and reports start/success/failure to the backup monitor.
 
 The backup bucket is versioned. Mirrored current files are retained; deleted/changed file versions and encrypted archive history follow the configured lifecycle.
+
+The quiesced interval intentionally causes a short write outage and can cause uncached requests to fail. This is required so the file mirror and database dump describe one coherent recovery point. Schedule backups during low traffic and monitor the independent backup heartbeat.
 
 The separate scheduled restore-verification service:
 
