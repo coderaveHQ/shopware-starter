@@ -3,19 +3,41 @@
 
 install_docker_engine() {
   if [[ "$TEST_MODE" == "1" ]]; then ok "TEST_MODE: Docker-Installation übersprungen"; return 0; fi
-  if command_exists docker; then
-    ok "Docker bereits vorhanden: $(docker --version)"
+  if command_exists docker \
+    && dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed' \
+    && dpkg-query -W -f='${Status}' docker-compose-plugin 2>/dev/null | grep -q 'install ok installed'; then
+    ok "Docker CE bereits vorhanden: $(docker --version)"
   else
-    install -m 0755 -d /etc/apt/keyrings
-    if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then run_shell 'curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc'; chmod a+r /etc/apt/keyrings/docker.asc; fi
-    local codename arch
+    local package conflicting_packages=() codename arch
+    for package in docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc; do
+      if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then
+        conflicting_packages+=("$package")
+      fi
+    done
+    if [[ "${#conflicting_packages[@]}" -gt 0 ]]; then
+      warn "Entferne mit Docker CE kollidierende Pakete: ${conflicting_packages[*]}"
+      run_cmd apt-get remove -y "${conflicting_packages[@]}"
+    fi
+    run_cmd install -m 0755 -d /etc/apt/keyrings
+    run_cmd curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    run_cmd chmod a+r /etc/apt/keyrings/docker.asc
     # shellcheck disable=SC1091
     . /etc/os-release
-    codename="${VERSION_CODENAME:-$(lsb_release -cs)}"; arch="$(dpkg --print-architecture)"
-    cat > /etc/apt/sources.list.d/docker.list <<EOFD
-# Docker official apt repository
-deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable
+    codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; arch="$(dpkg --print-architecture)"
+    [[ -n "$codename" ]] || die "Ubuntu-Codename konnte nicht aus /etc/os-release gelesen werden."
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[DRY-RUN] Docker APT-Quelle für $codename/$arch schreiben"
+    else
+      rm -f /etc/apt/sources.list.d/docker.list
+      cat > /etc/apt/sources.list.d/docker.sources <<EOFD
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $codename
+Components: stable
+Architectures: $arch
+Signed-By: /etc/apt/keyrings/docker.asc
 EOFD
+    fi
     run_cmd apt-get update
     run_cmd apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     ok "Docker Engine installiert"
@@ -32,6 +54,7 @@ add_user_to_docker_group() {
 }
 
 check_docker_compose() {
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then ok "DRY-RUN: Docker-Check übersprungen"; return 0; fi
   if command_exists docker; then
     docker version >/dev/null 2>&1 && ok "Docker Daemon erreichbar" || warn "Docker-Befehl vorhanden, Daemon aber nicht erreichbar"
     docker compose version >/dev/null 2>&1 && ok "Docker Compose Plugin vorhanden" || die "Docker Compose Plugin fehlt"

@@ -7,3 +7,5 @@ SHOPWARE_INFRA_TEST_MODE=1 bash scripts/01-setup-staging-server.sh --config test
 [[ -x /opt/shopware/template-test/staging/deploy.sh ]]
 grep -q 'SHOPWARE_DEPLOYMENT_STAGING=1' /opt/shopware/template-test/staging/.env
 grep -q 'staging.example.test' /opt/shopware/template-test/staging/Caddyfile
+grep -q 'docker compose ps' /root/shopware-setup/staging-server-summary.md
+! grep -Eqi 'opensearch|elasticsearch|SHOPWARE_ES' /opt/shopware/template-test/staging/.env /opt/shopware/template-test/staging/compose.yaml

@@ -11,7 +11,11 @@ Validates S3-compatible object storage variables. If aws-cli is installed and --
 USAGE
 }
 args=(); while [[ $# -gt 0 ]]; do case "$1" in --create) CREATE_BUCKETS=1; shift ;; *) args+=("$1"); shift ;; esac; done
-if ! parse_common_args "${args[@]}"; then usage; exit 0; fi
+if [[ "${#args[@]}" -gt 0 ]]; then
+  if ! parse_common_args "${args[@]}"; then usage; exit 0; fi
+else
+  parse_common_args
+fi
 [[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"; SHOPWARE_INFRA_TOTAL=5
 step "Config laden"; load_env_file "$CONFIG_FILE"; for var in S3_ENDPOINT S3_REGION S3_PUBLIC_BUCKET S3_PRIVATE_BUCKET S3_BACKUP_BUCKET S3_ACCESS_KEY S3_SECRET_KEY; do assert_not_empty "$var"; done
 step "AWS CLI prüfen"; if ! command_exists aws; then warn "aws-cli fehlt. Buckets manuell im IONOS/Object-Storage-Panel anlegen."; exit 0; fi; ok "AWS CLI vorhanden: $(aws --version 2>&1)"

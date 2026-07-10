@@ -17,4 +17,4 @@ def test_compose_files_are_parseable(host):
 def test_expected_containers_eventually_exist(host):
     result = host.run("docker ps --format '{{.Names}}' || true")
     names = result.stdout
-    assert any(part in names for part in ["database", "redis", "rabbitmq", "opensearch", "caddy", "varnish"]) or result.rc == 0
+    assert any(part in names for part in ["database", "redis", "rabbitmq", "caddy", "varnish"]) or result.rc == 0

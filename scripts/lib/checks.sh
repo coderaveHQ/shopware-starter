@@ -23,11 +23,18 @@ is_valid_domainish() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
 is_valid_ipv4() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
 
 check_ubuntu() {
-  assert_file_exists /etc/os-release
+  local os_release_file="${1:-/etc/os-release}" architecture_bits
+  assert_file_exists "$os_release_file"
   # shellcheck disable=SC1091
-  . /etc/os-release
+  . "$os_release_file"
   [[ "${ID:-}" == "ubuntu" ]] || die "Dieses Skript ist für Ubuntu gedacht. Erkannt: ${PRETTY_NAME:-unknown}"
-  ok "Ubuntu erkannt: ${PRETTY_NAME:-unknown}"
+  case "${VERSION_ID:-}" in
+    24.04|26.04) ;;
+    *) die "Nicht unterstützte Ubuntu-Version: ${VERSION_ID:-unknown}. Unterstützt werden 24.04 LTS und 26.04 LTS." ;;
+  esac
+  architecture_bits="$(getconf LONG_BIT 2>/dev/null || true)"
+  [[ "$architecture_bits" == "64" ]] || die "Shopware benötigt ein 64-Bit-Linux. Erkannt: ${architecture_bits:-unknown}-Bit."
+  ok "Unterstütztes 64-Bit-Ubuntu erkannt: ${PRETTY_NAME:-unknown}"
 }
 
 check_port_free() {

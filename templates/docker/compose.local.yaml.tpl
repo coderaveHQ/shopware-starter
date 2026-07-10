@@ -25,15 +25,6 @@ services:
     ports: ["5672:5672", "15672:15672"]
     volumes: ["local_rabbitmq:/var/lib/rabbitmq"]
 
-  opensearch:
-    image: "{{OPENSEARCH_IMAGE}}"
-    environment:
-      discovery.type: single-node
-      DISABLE_SECURITY_PLUGIN: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports: ["9200:9200"]
-    volumes: ["local_opensearch:/usr/share/opensearch/data"]
-
   app:
     build:
       context: .
@@ -41,10 +32,9 @@ services:
         PHP_VERSION: "{{PHP_VERSION}}"
     env_file: .env.local
     ports: ["8000:8000"]
-    depends_on: [database, redis, rabbitmq, opensearch]
+    depends_on: [database, redis, rabbitmq]
 
 volumes:
   local_database:
   local_redis:
   local_rabbitmq:
-  local_opensearch:

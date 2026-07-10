@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run repository tests
         run: bash scripts/07-run-tests.sh --syntax-only
+      - name: Test server scripts on supported Ubuntu LTS releases
+        run: bash scripts/07-run-tests.sh --docker
 
   docker-build:
     runs-on: ubuntu-latest

@@ -7,8 +7,8 @@ if [[ -z "$IMAGE" ]]; then echo "SHOPWARE_IMAGE is missing" >&2; exit 1; fi
 export SHOPWARE_IMAGE="$IMAGE"
 
 echo "Deploying image: $SHOPWARE_IMAGE"
-docker compose pull database redis rabbitmq opensearch varnish caddy || true
-docker compose up -d database redis rabbitmq opensearch
+docker compose pull database redis rabbitmq varnish caddy || true
+docker compose up -d database redis rabbitmq
 
 docker compose pull app init worker scheduler
 docker compose run --rm init

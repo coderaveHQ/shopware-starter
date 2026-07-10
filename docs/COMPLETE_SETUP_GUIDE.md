@@ -6,6 +6,8 @@ Dieses Dokument erklärt die komplette Architektur, alle Skripte und alle Schrit
 
 Wir verwenden Variante A:
 
+Jede Umgebung läuft auf einem eigenen IONOS VPS mit Ubuntu 26.04 LTS (64-Bit), 8 vCPU, 16 GB RAM und 480 GB NVMe SSD. Das Template unterstützt und testet zusätzlich Ubuntu 24.04 LTS. Andere Ubuntu-Versionen werden bewusst abgelehnt, bis sie explizit validiert wurden.
+
 ```text
 GitHub Repository
   ├─ Branch staging     → GitHub Actions → Staging VPS
@@ -19,8 +21,7 @@ Staging VPS
   ├─ Shopware Scheduled Task Container
   ├─ MariaDB
   ├─ Valkey/Redis
-  ├─ RabbitMQ
-  └─ OpenSearch
+  └─ RabbitMQ
 
 Production VPS
   ├─ gleiche Struktur wie Staging
@@ -44,8 +45,8 @@ Die Umsetzung orientiert sich an diesen offiziellen Empfehlungen:
 - S3-kompatibler Storage ist bei mehreren App-Servern notwendig und auch bei Single-Server-Setups sinnvoll für Redundanz, Backups und skalierenden Speicher.
 - Redis/Valkey ist für Cache, Session, Cart und weitere Speicherbereiche vorgesehen. Für große Cluster sollten getrennte Redis-Instanzen verwendet werden; Variante A nutzt aus Kostengründen eine Instanz je Umgebung.
 - Für produktive Queues empfiehlt Shopware CLI Worker und bei mehr Last eine dedizierte Queue-Technologie. Dieses Template verwendet RabbitMQ.
-- OpenSearch wird für Produkt-/Admin-Suche und Indexierung vorgesehen. Dieses Template verwendet einen Single-Node je Umgebung.
-- HTTP Cache ist aktiviert. Varnish ist als Reverse HTTP Cache vorgeschaltet.
+- HTTP Cache ist aktiviert. Varnish ist als Reverse HTTP Cache mit der von Shopware empfohlenen XKey-Invalidierung vorgeschaltet.
+- Reverse-Proxy-Adressen werden über die offizielle Shopware-Docker-Recipe `trusted_env.yaml` aus `TRUSTED_PROXIES` in die Symfony-Framework-Konfiguration übernommen.
 
 ## 3. Warum ein zentrales Vault-File?
 
@@ -127,7 +128,6 @@ Das Skript macht aus dem Template ein echtes Shopware-Kundenrepo.
    - `shopware/docker`
    - `shopware/deployment-helper`
    - `league/flysystem-async-aws-s3`
-   - `shopware/elasticsearch`
    - `symfony/amqp-messenger`
 4. Dockerfile schreiben.
 5. Lokales Compose-Setup schreiben.
@@ -192,10 +192,11 @@ Normalerweise wird das durch Skript 06 automatisch ausgeführt.
 - Staging-Skript akzeptiert nur `ENVIRONMENT=staging`.
 - Production-Skript akzeptiert nur `ENVIRONMENT=production`.
 - Falsche Config führt zu hartem Abbruch.
+- Als Host werden nur Ubuntu 24.04 LTS und 26.04 LTS in 64-Bit akzeptiert.
 
 ### Systemschritte
 
-1. Ubuntu prüfen.
+1. Ubuntu-Version und 64-Bit-Architektur prüfen.
 2. System aktualisieren.
 3. Basispakete installieren.
 4. Hostname setzen.
@@ -203,7 +204,7 @@ Normalerweise wird das durch Skript 06 automatisch ausgeführt.
 6. Admin-User anlegen.
 7. Deploy-User anlegen.
 8. SSH Public Keys hinterlegen.
-9. Docker Engine über offizielles Docker-Apt-Repository installieren.
+9. Kollidierende Distribution-Pakete entfernen und Docker Engine über die offizielle Deb822-Apt-Quelle (`docker.sources`) installieren.
 10. Docker Compose Plugin prüfen.
 11. SSH härten: Passwort-Login aus, Public-Key-Login an.
 12. UFW Firewall konfigurieren: SSH, 80, 443.
@@ -233,13 +234,14 @@ Normalerweise wird das durch Skript 06 automatisch ausgeführt.
 | `database` | MariaDB für Shopware |
 | `redis` | Valkey/Redis für Cache/Sessions |
 | `rabbitmq` | Message Queue |
-| `opensearch` | Suchindex |
 | `init` | Deployment Helper Run |
 | `app` | Shopware App mit FrankenPHP |
 | `worker` | Messenger Worker |
 | `scheduler` | Scheduled Tasks |
 | `varnish` | Reverse HTTP Cache |
 | `caddy` | HTTPS Reverse Proxy |
+
+Die Shopware-Konfiguration verwendet für Varnish `BAN`, XKey-Invalidierung und maximal drei parallele Invalidierungen. Da Shopware seit 6.6 `TRUSTED_PROXIES` nicht mehr automatisch auswertet, erzeugt das Repo zusätzlich `config/packages/trusted_env.yaml` nach der offiziellen Shopware-Docker-Recipe.
 
 ### Warum Init-Container?
 
@@ -249,7 +251,7 @@ Der Init-Container führt den Deployment Helper aus. Dadurch laufen Installation
 
 ### CI
 
-`.github/workflows/ci.yml` führt Syntax-/Template-Tests aus und baut das Docker Image ohne Push.
+`.github/workflows/ci.yml` führt Syntax-/Template-Tests sowie die Server-Skript-Simulationen mit Ubuntu 24.04 und 26.04 aus und baut das Docker Image ohne Push.
 
 ### Staging Deployment
 
@@ -310,7 +312,7 @@ Testet Bash-Funktionen wie Secret-Generierung, Slug-Normalisierung und Sicherhei
 bash scripts/07-run-tests.sh --docker
 ```
 
-Baut einen Ubuntu-Container und führt die Server-Skripte im Testmodus aus. Das testet Skriptlogik und Dateigenerierung, aber nicht echte systemd-/Firewall-/Docker-Host-Semantik.
+Baut nacheinander Container mit Ubuntu 24.04 und 26.04 und führt die Staging- und Production-Server-Skripte im Testmodus aus. Das testet Skriptlogik, Versionsprüfung und Dateigenerierung, aber nicht echte systemd-/Firewall-/Docker-Host-Semantik.
 
 ### Testinfra
 
@@ -320,6 +322,7 @@ bash scripts/07-run-tests.sh --testinfra --host ssh://deploy@staging.shop.exampl
 
 Prüft echte Serverzustände:
 
+- unterstütztes 64-Bit-Ubuntu läuft
 - Docker läuft
 - SSH Passwort-Login ist aus
 - UFW aktiv
@@ -363,7 +366,6 @@ Da jedes Deployment ein getaggtes Docker Image nutzt, kann grundsätzlich auf ei
 - Kein automatisches Failover.
 - Keine horizontale Skalierung.
 - Keine getrennten Redis-Instanzen für jeden Datentyp.
-- Kein OpenSearch-Cluster.
 - Kein RabbitMQ-Cluster.
 - Kein DB-Replica-Setup.
 

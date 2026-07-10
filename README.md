@@ -5,27 +5,30 @@ Dieses Repository ist ein Template für zukünftige Kundenprojekte mit **Shopwar
 - **Staging VPS**: eigenständige Testumgebung
 - **Production VPS**: eigenständige Live-Umgebung
 
-Variante A ist bewusst **kein Hochverfügbarkeitscluster**. Jeder VPS ist ein Single-Server-Stack mit Docker Compose, MariaDB, Valkey/Redis, RabbitMQ, OpenSearch, Varnish, Caddy/HTTPS, Backups und GitHub-Actions-Deployment. Backups helfen bei Wiederherstellung, ersetzen aber keinen Ausfall-Server.
+Variante A ist bewusst **kein Hochverfügbarkeitscluster**. Jeder VPS ist ein Single-Server-Stack mit Docker Compose, MariaDB, Valkey/Redis, RabbitMQ, Varnish, Caddy/HTTPS, Backups und GitHub-Actions-Deployment. Backups helfen bei Wiederherstellung, ersetzen aber keinen Ausfall-Server.
 
-Die Implementierung orientiert sich an den offiziellen Shopware Developer Docs für Docker, Deployment Helper, Hosting Requirements, Filesystem/S3, Redis/Valkey, Message Queue, Scheduled Tasks, OpenSearch/Elasticsearch und Reverse HTTP Cache.
+Die Implementierung orientiert sich an den offiziellen Shopware Developer Docs für Docker, Deployment Helper, Hosting Requirements, Filesystem/S3, Redis/Valkey, Message Queue, Scheduled Tasks und Reverse HTTP Cache.
 
 ## Enthaltene Technologien
 
 | Bereich | Standard im Template |
 |---|---|
-| OS | Ubuntu 24.04 LTS oder neuer auf dem VPS |
+| OS | Ubuntu 24.04 LTS oder Ubuntu 26.04 LTS, jeweils 64-Bit |
+| VPS je Umgebung | 8 vCPU, 16 GB RAM, 480 GB NVMe SSD |
 | Container | Docker Engine + Docker Compose Plugin |
 | Shopware Runtime | offizielles Shopware Docker Base Image mit FrankenPHP |
 | PHP | `8.4` als Default |
 | DB | `mariadb:11.4` |
 | Cache/Session | `valkey/valkey:8-alpine`, Service-Name `redis` für Shopware-Kompatibilität |
 | Queue | `rabbitmq:3-management-alpine` mit CLI Worker |
-| Suche | `opensearchproject/opensearch:2.17.1` als Single-Node-Setup je Umgebung |
+| Suche | Shopware-Standardsuche über MariaDB, ohne externen Suchdienst |
 | HTTP Cache | `ghcr.io/shopware/varnish:6.7` + Shopware reverse proxy config |
 | HTTPS/Proxy | `caddy:2-alpine` mit automatischem Let's Encrypt |
 | Filesystem | S3-kompatibles Object Storage via Flysystem |
 | CI/CD | GitHub Actions baut Docker Image und deployed per SSH |
-| Tests | Bash-Syntax, Bats, Docker-Ubuntu-Simulation, Testinfra gegen echte Server |
+| Tests | Bash-Syntax, Bats, Docker-Simulation mit Ubuntu 24.04/26.04, Testinfra gegen echte Server |
+
+Die Server-Skripte akzeptieren ausschließlich die beiden explizit getesteten LTS-Versionen. Die eingesetzten IONOS VPS mit je 8 vCPU, 16 GB RAM und 480 GB NVMe SSD erfüllen die offiziellen Shopware-Empfehlungen von mindestens 8 GB RAM und einem Quad-Core-Prozessor.
 
 ## Repository-Struktur
 
@@ -221,7 +224,7 @@ Bats, falls installiert:
 bash scripts/07-run-tests.sh --bats
 ```
 
-Docker-Ubuntu-Simulation, falls Docker lokal läuft:
+Docker-Ubuntu-Simulation für Ubuntu 24.04 und 26.04, falls Docker lokal läuft:
 
 ```bash
 bash scripts/07-run-tests.sh --docker
@@ -251,8 +254,7 @@ Nach der Übernahme in den Passwort-Manager solltest du `generated/customer-vaul
 
 - Kein automatischer Failover-Server.
 - Kein Datenbankcluster.
-- OpenSearch läuft pro Umgebung als Single Node.
 - Redis/Valkey, RabbitMQ und DB laufen pro Umgebung auf demselben VPS.
 - Backups sind Wiederherstellung, keine Hochverfügbarkeit.
 
-Für größere Kunden kann dieses Template später erweitert werden: externe DB, zweiter App-Server, Load Balancer, Redis separat, OpenSearch-Cluster, RabbitMQ-Cluster, dedizierter Backup-Server.
+Für größere Kunden kann dieses Template später erweitert werden: externe DB, zweiter App-Server, Load Balancer, Redis separat, RabbitMQ-Cluster, dedizierter Backup-Server.

@@ -2,6 +2,14 @@
 Run with: pytest --hosts=ssh://deploy@example.com tests/testinfra
 """
 
+def test_supported_ubuntu_release(host):
+    release = host.file("/etc/os-release")
+    assert release.exists
+    assert release.contains("ID=ubuntu")
+    assert release.contains('VERSION_ID="24.04"') or release.contains('VERSION_ID="26.04"')
+    assert host.check_output("getconf LONG_BIT") == "64"
+
+
 def test_required_commands(host):
     for command in ["docker", "git", "curl"]:
         assert host.exists(command), f"Missing command: {command}"

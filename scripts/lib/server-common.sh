@@ -2,7 +2,7 @@
 # Common implementation for staging/production server setup.
 
 validate_server_env() {
-  for var in ENVIRONMENT CUSTOMER_NAME PROJECT_SLUG PRIMARY_DOMAIN ADMIN_EMAIL TIMEZONE ADMIN_USER DEPLOY_USER ADMIN_PUBLIC_KEY GITHUB_ACTIONS_DEPLOY_PUBLIC_KEY SSH_PORT INSTALL_DIR COMPOSE_PROJECT_NAME GHCR_IMAGE SHOPWARE_IMAGE APP_URL APP_SECRET INSTALL_ADMIN_USERNAME INSTALL_ADMIN_PASSWORD DB_NAME DB_USER DB_ROOT_PASSWORD DB_PASSWORD REDIS_PASSWORD RABBITMQ_USER RABBITMQ_PASSWORD ES_INDEX_PREFIX MARIADB_IMAGE VALKEY_IMAGE OPENSEARCH_IMAGE RABBITMQ_IMAGE VARNISH_IMAGE CADDY_IMAGE BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE; do
+  for var in ENVIRONMENT CUSTOMER_NAME PROJECT_SLUG PRIMARY_DOMAIN ADMIN_EMAIL TIMEZONE ADMIN_USER DEPLOY_USER ADMIN_PUBLIC_KEY GITHUB_ACTIONS_DEPLOY_PUBLIC_KEY SSH_PORT INSTALL_DIR COMPOSE_PROJECT_NAME GHCR_IMAGE SHOPWARE_IMAGE APP_URL APP_SECRET INSTALL_ADMIN_USERNAME INSTALL_ADMIN_PASSWORD DB_NAME DB_USER DB_ROOT_PASSWORD DB_PASSWORD REDIS_PASSWORD RABBITMQ_USER RABBITMQ_PASSWORD MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE VARNISH_IMAGE CADDY_IMAGE BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE; do
     assert_not_empty "$var"
   done
   [[ "$EXPECTED_ENVIRONMENT" == "$ENVIRONMENT" ]] || die "Falsche Config: erwartet $EXPECTED_ENVIRONMENT, erhalten $ENVIRONMENT"
@@ -72,13 +72,13 @@ Generated: $(date -Iseconds)
 
 ## Useful commands
 
-```bash
+~~~bash
 sudo -iu $DEPLOY_USER
 cd $INSTALL_DIR
 docker compose ps
 ./status.sh
 ./backup.sh
-```
+~~~
 
 ## GitHub Actions values
 
@@ -100,7 +100,7 @@ start_infra_containers_if_possible() {
   else
     warn "Shopware-Image ist noch nicht verfügbar: $SHOPWARE_IMAGE. Infrastruktur wird vorbereitet; erster App-Start erfolgt nach GitHub-Actions-Deployment."
   fi
-  docker compose up -d database redis rabbitmq opensearch || warn "Infrastruktur-Container konnten noch nicht vollständig gestartet werden. Prüfe Docker Logs."
+  docker compose up -d database redis rabbitmq || warn "Infrastruktur-Container konnten noch nicht vollständig gestartet werden. Prüfe Docker Logs."
 }
 
 setup_shopware_server() {

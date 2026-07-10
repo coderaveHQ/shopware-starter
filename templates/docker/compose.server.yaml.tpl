@@ -43,24 +43,6 @@ services:
       timeout: 10s
       retries: 30
 
-  opensearch:
-    image: "{{OPENSEARCH_IMAGE}}"
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      bootstrap.memory_lock: "true"
-      DISABLE_SECURITY_PLUGIN: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ulimits:
-      memlock: {soft: -1, hard: -1}
-      nofile: {soft: 65536, hard: 65536}
-    volumes: ["opensearch:/usr/share/opensearch/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
-      interval: 15s
-      timeout: 10s
-      retries: 40
-
   init:
     image: "${SHOPWARE_IMAGE}"
     env_file: .env
@@ -70,7 +52,6 @@ services:
       database: {condition: service_healthy}
       redis: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
-      opensearch: {condition: service_healthy}
 
   app:
     image: "${SHOPWARE_IMAGE}"
@@ -81,7 +62,6 @@ services:
       database: {condition: service_healthy}
       redis: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
-      opensearch: {condition: service_healthy}
     healthcheck:
       test: ["CMD-SHELL", "php bin/console --version >/dev/null 2>&1"]
       interval: 30s
@@ -132,6 +112,5 @@ volumes:
   database:
   redis:
   rabbitmq:
-  opensearch:
   caddy_data:
   caddy_config:
