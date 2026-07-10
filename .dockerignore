@@ -1,0 +1,47 @@
+# Repository metadata and automation are not application runtime input.
+.git
+.github
+.idea
+.vscode
+docs
+scripts
+templates
+tests
+generated
+README.md
+LICENSE
+
+# Customer configuration and all possible secret material.
+customer.env
+customer-vault.md
+secrets.txt
+auth.json
+.env.local
+.env.*.local
+*.secret
+*.key
+*.pem
+*.sql
+*.sql.gz
+*.tar.gz
+*.tar.gz.enc
+backups
+config/jwt
+
+# Host-only orchestration files.
+compose*.yaml
+Caddyfile
+
+# Rebuilt dependency/runtime output.
+node_modules
+vendor
+var
+files
+coverage
+.phpunit.cache
+.phpunit.result.cache
+public/media
+public/thumbnail
+public/theme
+public/bundles
+public/sitemap

@@ -1,8 +1,8 @@
-ARG UBUNTU_VERSION=26.04
-FROM ubuntu:${UBUNTU_VERSION}
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+FROM ${UBUNTU_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client openssh-server python3 openssl passwd sudo procps iproute2 \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client openssh-server python3 openssl passwd sudo procps iproute2 rsync \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 COPY . /repo

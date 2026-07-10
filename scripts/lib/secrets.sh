@@ -15,6 +15,7 @@ generate_hex_secret() { local bytes="${1:-32}"; openssl rand -hex "$bytes"; }
 
 ensure_ssh_key() {
   local key_path="$1" comment="$2" force="${3:-0}"
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then log "[DRY-RUN] ED25519-Key erzeugen: $key_path"; return 0; fi
   mkdir -p "$(dirname "$key_path")"
   chmod 700 "$(dirname "$key_path")"
   if [[ -f "$key_path" && "$force" != "1" ]]; then ok "SSH-Key existiert bereits: $key_path"; return 0; fi

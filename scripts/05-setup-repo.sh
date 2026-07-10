@@ -1,34 +1,96 @@
 #!/usr/bin/env bash
-# Local repo setup. Creates Shopware project files, Docker setup, GitHub Actions and config files.
+# One-shot Shopware production-project initialization.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/lib/bootstrap.sh"
-CONFIG_FILE="$REPO_ROOT/generated/customer.env"; SKIP_COMPOSER=0
-usage(){ cat <<USAGE
-Usage: bash scripts/05-setup-repo.sh [--config generated/customer.env] [--dry-run] [--force] [--skip-composer]
+CONFIG_FILE="$REPO_ROOT/generated/customer.env"
 
-Bootstraps the customer repository:
-- composer create-project shopware/production
-- composer require shopware/docker shopware-deployment-helper and optional packages
-- writes Dockerfile, compose.local.yaml, Shopware config and GitHub Actions
+usage() { cat <<USAGE
+Usage: bash scripts/05-setup-repo.sh [--config generated/customer.env] [--dry-run]
+
+Creates an exact Shopware production project once, installs the official Docker
+and Deployment Helper packages, then writes the hardened project overlays.
 USAGE
 }
-args=(); while [[ $# -gt 0 ]]; do case "$1" in --skip-composer) SKIP_COMPOSER=1; shift ;; *) args+=("$1"); shift ;; esac; done
-if [[ "${#args[@]}" -gt 0 ]]; then
-  if ! parse_common_args "${args[@]}"; then usage; exit 0; fi
-else
-  parse_common_args
+
+if ! parse_common_args "$@"; then usage; exit 0; fi
+[[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"
+if [[ "$DRY_RUN" == 1 ]]; then SHOPWARE_INFRA_TOTAL=3; else SHOPWARE_INFRA_TOTAL=13; fi
+MARKER="$REPO_ROOT/.shopware-initialized-by-template"
+
+step "Konfiguration sicher laden"
+assert_private_file "$CONFIG_FILE"
+load_env_file "$CONFIG_FILE" "${GENERATED_CUSTOMER_CONFIG_KEYS[@]}"
+validate_customer_config
+[[ -f "$REPO_ROOT/generated/.prepared" ]] || die "scripts/00-prepare-customer.sh muss erfolgreich abgeschlossen sein."
+[[ ! -e "$MARKER" ]] || die "Shopware-Projekt wurde bereits initialisiert; das One-shot-Skript wird nicht erneut ausgeführt."
+
+step "Lokale Werkzeuge prüfen"
+require_not_root; require_command git; require_command python3; require_command composer; require_command rsync
+if command_exists docker; then ok "Docker vorhanden"; else warn "Docker fehlt; der verpflichtende Image-Test kann erst später erfolgen."; fi
+
+if [[ "$DRY_RUN" == 1 ]]; then
+  step "Änderungsfreien Plan ausgeben"
+  log "[DRY-RUN] Würde Shopware $SHOPWARE_VERSION exakt erstellen, offizielle Pakete installieren und gehärtete Dateien rendern."
+  ok "Repo-Dry-run ohne Mutation abgeschlossen"
+  exit 0
 fi
-[[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"; SHOPWARE_INFRA_TOTAL=10
-step "Config laden"; load_env_file "$CONFIG_FILE"; for var in PROJECT_SLUG GITHUB_OWNER GITHUB_REPO PHP_VERSION MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE; do assert_not_empty "$var"; done
-step "Lokale Tools prüfen"; require_not_root; require_command git; require_command python3; [[ "$SKIP_COMPOSER" == "1" ]] || require_command composer; command_exists docker && ok "Docker vorhanden: $(docker --version)" || warn "Docker fehlt lokal; Docker-Builds laufen später in GitHub Actions."
-step "Git-Repository prüfen"; if [[ ! -d "$REPO_ROOT/.git" ]]; then warn "Noch kein Git-Repository. Initialisiere git."; run_cmd git -C "$REPO_ROOT" init; fi; ok "Repo Root: $REPO_ROOT"
-step "Shopware production template erzeugen"; if [[ "$SKIP_COMPOSER" == "1" ]]; then warn "--skip-composer aktiv: Shopware composer create-project wird übersprungen."; elif [[ -f "$REPO_ROOT/composer.json" && -f "$REPO_ROOT/bin/console" ]]; then ok "Shopware-Projekt scheint bereits vorhanden zu sein."; else TMP_DIR="$REPO_ROOT/.shopware-bootstrap-tmp"; rm -rf "$TMP_DIR"; if [[ -n "${SHOPWARE_VERSION:-}" ]]; then run_cmd composer create-project "shopware/production:${SHOPWARE_VERSION}" "$TMP_DIR" --no-interaction; else run_cmd composer create-project shopware/production "$TMP_DIR" --no-interaction; fi; rsync -a --ignore-existing "$TMP_DIR/" "$REPO_ROOT/"; rm -rf "$TMP_DIR"; ok "Shopware production template in Repo kopiert"; fi
-step "Composer Pakete für Docker/Deployment/S3/Queue ergänzen"; if [[ "$SKIP_COMPOSER" == "1" ]]; then warn "--skip-composer aktiv: composer require wird übersprungen."; else run_cmd composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction; fi
-step "Docker- und lokale Compose-Dateien schreiben"; export PROJECT_SLUG PHP_VERSION MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE; render_template "$REPO_ROOT/templates/docker/Dockerfile.tpl" "$REPO_ROOT/Dockerfile"; render_template "$REPO_ROOT/templates/docker/compose.local.yaml.tpl" "$REPO_ROOT/compose.local.yaml"
-step "Shopware-Konfiguration schreiben"; mkdir -p "$REPO_ROOT/config/packages" "$REPO_ROOT/config/packages/prod"; export SHOPWARE_STORE_LICENSE_DOMAIN="${SHOPWARE_STORE_LICENSE_DOMAIN:-}"; render_template "$REPO_ROOT/templates/shopware/shopware-project.yml.tpl" "$REPO_ROOT/.shopware-project.yml"; render_template "$REPO_ROOT/templates/shopware/filesystem-s3.yaml.tpl" "$REPO_ROOT/config/packages/filesystem-s3.yaml"; render_template "$REPO_ROOT/templates/shopware/varnish.yaml.tpl" "$REPO_ROOT/config/packages/varnish.yaml"; render_template "$REPO_ROOT/templates/shopware/trusted_env.yaml.tpl" "$REPO_ROOT/config/packages/trusted_env.yaml"; render_template "$REPO_ROOT/templates/shopware/shopware-infra.yaml.tpl" "$REPO_ROOT/config/packages/z-shopware-infra.yaml"
-step ".env.local und .env.example schreiben"; APP_SECRET="local-dev-secret-not-for-production"; APP_URL="http://localhost:8000"; ENVIRONMENT="local"; SHOPWARE_IMAGE="${GHCR_IMAGE:-ghcr.io/$GITHUB_OWNER/$GITHUB_REPO/shopware}:local"; DB_NAME="shopware"; DB_USER="shopware"; DB_PASSWORD="shopware"; REDIS_PASSWORD="shopware"; RABBITMQ_USER="shopware"; RABBITMQ_PASSWORD="shopware"; INSTALL_ADMIN_PASSWORD="shopware"; SHOPWARE_DEPLOYMENT_STAGING="0"; export APP_SECRET APP_URL ENVIRONMENT SHOPWARE_IMAGE DB_NAME DB_USER DB_PASSWORD REDIS_PASSWORD RABBITMQ_USER RABBITMQ_PASSWORD INSTALL_ADMIN_PASSWORD SHOPWARE_DEPLOYMENT_STAGING INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME ADMIN_EMAIL SHOPWARE_USAGE_DATA_CONSENT S3_ENDPOINT S3_REGION S3_USE_PATH_STYLE S3_PUBLIC_BUCKET S3_PRIVATE_BUCKET S3_PUBLIC_URL S3_ACCESS_KEY S3_SECRET_KEY SHOPWARE_STORE_ACCOUNT_EMAIL SHOPWARE_STORE_ACCOUNT_PASSWORD SHOPWARE_STORE_SHOP_SECRET SHOPWARE_STORE_LICENSE_DOMAIN; render_template "$REPO_ROOT/templates/shopware/env.example.tpl" "$REPO_ROOT/.env.local.example"; if [[ ! -f "$REPO_ROOT/.env.local" || "$FORCE" == "1" ]]; then cp "$REPO_ROOT/.env.local.example" "$REPO_ROOT/.env.local"; ok ".env.local geschrieben"; else ok ".env.local existiert bereits, nicht überschrieben"; fi
-step "GitHub Actions schreiben"; mkdir -p "$REPO_ROOT/.github/workflows"; render_template "$REPO_ROOT/templates/github/ci.yml.tpl" "$REPO_ROOT/.github/workflows/ci.yml"; render_template "$REPO_ROOT/templates/github/deploy-staging.yml.tpl" "$REPO_ROOT/.github/workflows/deploy-staging.yml"; render_template "$REPO_ROOT/templates/github/deploy-production.yml.tpl" "$REPO_ROOT/.github/workflows/deploy-production.yml"; render_template "$REPO_ROOT/templates/github/dependabot.yml.tpl" "$REPO_ROOT/.github/dependabot.yml"
-step "Branches vorbereiten"; git -C "$REPO_ROOT" rev-parse --verify staging >/dev/null 2>&1 && ok "Branch staging existiert" || warn "Branch staging existiert noch nicht. Nach dem ersten Commit anlegen: git checkout -b staging"; git -C "$REPO_ROOT" rev-parse --verify production >/dev/null 2>&1 && ok "Branch production existiert" || warn "Branch production existiert noch nicht. Nach Staging-Freigabe anlegen: git checkout -b production"
-step "Vault erweitern"; VAULT_FILE="$REPO_ROOT/generated/customer-vault.md"; if [[ -f "$VAULT_FILE" ]]; then vault_section "$VAULT_FILE" "Repo Setup"; vault_kv "$VAULT_FILE" "Dockerfile" "$REPO_ROOT/Dockerfile"; vault_kv "$VAULT_FILE" "Local Compose" "$REPO_ROOT/compose.local.yaml"; vault_kv "$VAULT_FILE" "GitHub Workflow Staging" ".github/workflows/deploy-staging.yml"; vault_kv "$VAULT_FILE" "GitHub Workflow Production" ".github/workflows/deploy-production.yml"; fi
-ok "Repo-Setup abgeschlossen. Prüfe nun README.md und docs/COMPLETE_SETUP_GUIDE.md."
+
+[[ -d "$REPO_ROOT/.git" ]] || die "Dieses Template muss in einem Git-Repository liegen."
+[[ ! -f "$REPO_ROOT/composer.json" && ! -f "$REPO_ROOT/bin/console" ]] || die "Bestehendes Shopware-Projekt erkannt; Initialisierung abgebrochen."
+TMP_DIR="$REPO_ROOT/.shopware-bootstrap-tmp"
+[[ ! -e "$TMP_DIR" && ! -L "$TMP_DIR" ]] || die "Temporärer Bootstrap-Ordner existiert bereits oder ist ein Symlink: $TMP_DIR"
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT INT TERM
+
+step "Exaktes Shopware Production Template erzeugen"
+composer create-project "shopware/production:$SHOPWARE_VERSION" "$TMP_DIR" --no-interaction
+
+step "Offizielle Hosting-Pakete installieren"
+(cd "$TMP_DIR" && composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction)
+actual_shopware_version="$(cd "$TMP_DIR" && composer show shopware/core --locked --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["versions"][0].removeprefix("* ").lstrip("v"))')"
+[[ "$actual_shopware_version" == "$SHOPWARE_VERSION" ]] || die "Composer hat unerwartet Shopware $actual_shopware_version statt $SHOPWARE_VERSION aufgelöst."
+
+step "Vollständig aufgelöstes Projekt übernehmen"
+rsync -a --exclude .git --ignore-existing "$TMP_DIR/" "$REPO_ROOT/"
+rm -rf "$TMP_DIR"
+
+step "Gepinntes offizielles Produktions-Image und lokale Integration schreiben"
+export PROJECT_SLUG PHP_VERSION SHOPWARE_DOCKER_BASE_IMAGE SHOPWARE_CLI_IMAGE MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE
+render_template "$REPO_ROOT/templates/docker/Dockerfile.tpl" "$REPO_ROOT/Dockerfile"
+render_template "$REPO_ROOT/templates/docker/compose.local.yaml.tpl" "$REPO_ROOT/compose.local.yaml"
+
+step "Shopware-Konfiguration schreiben"
+mkdir -p "$REPO_ROOT/config/packages"
+render_template "$REPO_ROOT/templates/shopware/shopware-project.yml.tpl" "$REPO_ROOT/.shopware-project.yml"
+render_template "$REPO_ROOT/templates/shopware/filesystem-s3.yaml.tpl" "$REPO_ROOT/config/packages/filesystem-s3.yaml"
+render_template "$REPO_ROOT/templates/shopware/varnish.yaml.tpl" "$REPO_ROOT/config/packages/varnish.yaml"
+render_template "$REPO_ROOT/templates/shopware/trusted_env.yaml.tpl" "$REPO_ROOT/config/packages/trusted_env.yaml"
+render_template "$REPO_ROOT/templates/shopware/shopware-infra.yaml.tpl" "$REPO_ROOT/config/packages/z-shopware-infra.yaml"
+
+step "Lokale, nicht produktive Umgebung schreiben"
+export INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME ADMIN_EMAIL SHOPWARE_USAGE_DATA_CONSENT
+render_template "$REPO_ROOT/templates/shopware/env.local.tpl" "$REPO_ROOT/.env.local.example"
+cp "$REPO_ROOT/.env.local.example" "$REPO_ROOT/.env.local"
+chmod 600 "$REPO_ROOT/.env.local"
+
+step "Gepinnte GitHub-Automation schreiben"
+mkdir -p "$REPO_ROOT/.github/workflows"
+render_template "$REPO_ROOT/templates/github/ci.yml.tpl" "$REPO_ROOT/.github/workflows/ci.yml"
+render_template "$REPO_ROOT/templates/github/deploy-staging.yml.tpl" "$REPO_ROOT/.github/workflows/deploy-staging.yml"
+render_template "$REPO_ROOT/templates/github/deploy-production.yml.tpl" "$REPO_ROOT/.github/workflows/deploy-production.yml"
+render_template "$REPO_ROOT/templates/github/dependabot.yml.tpl" "$REPO_ROOT/.github/dependabot.yml"
+
+step "Composer-Metadaten und Advisories prüfen"
+(cd "$REPO_ROOT" && composer validate --strict && composer audit --locked --no-interaction)
+
+step "Sicherheitsinvarianten prüfen"
+bash "$REPO_ROOT/scripts/08-preflight.sh" --local-only
+
+step "Initialisierung unveränderlich markieren"
+printf 'shopware=%s\ncreated=%s\n' "$SHOPWARE_VERSION" "$(date -Iseconds)" > "$MARKER"
+chmod 600 "$MARKER"
+trap - EXIT INT TERM
+
+step "Repo-Setup abschließen"
+ok "Shopware $SHOPWARE_VERSION wurde einmalig vorbereitet. Vor einem Commit müssen Tests und Image-Scan vollständig grün sein."

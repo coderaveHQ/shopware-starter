@@ -8,6 +8,15 @@ customer.env
 *.env.generated
 secrets.txt
 customer-vault.md
+.shopware-project.local.yml
+auth.json
+config/jwt/*.pem
+*.sql
+*.sql.gz
+*.tar.gz
+*.tar.gz.enc
+*.sha256
+backups/
 
 # Shopware/local runtime
 .env.local
@@ -27,6 +36,7 @@ build/
 dist/
 coverage/
 .phpunit.result.cache
+.phpunit.cache/
 
 # OS/editor
 .DS_Store

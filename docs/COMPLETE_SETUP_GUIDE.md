@@ -1,385 +1,370 @@
-# Complete Setup Guide — Shopware 6 Infrastructure Template
+# Complete setup and security runbook
 
-Dieses Dokument erklärt die komplette Architektur, alle Skripte und alle Schritte dieses Template-Repositories. Es ist als interne technische Projektdokumentation gedacht, damit zukünftige Kundenprojekte reproduzierbar und nachvollziehbar eingerichtet werden können.
+This is the authoritative operating sequence for this repository. It assumes there is no existing Shopware project, no local stack and no server state. Stop immediately if that assumption is false.
 
-## 1. Zielarchitektur
+## 1. Safety verdict model
 
-Wir verwenden Variante A:
+There are three distinct states:
 
-Jede Umgebung läuft auf einem eigenen IONOS VPS mit Ubuntu 26.04 LTS (64-Bit), 8 vCPU, 16 GB RAM und 480 GB NVMe SSD. Das Template unterstützt und testet zusätzlich Ubuntu 24.04 LTS. Andere Ubuntu-Versionen werden bewusst abgelehnt, bis sie explizit validiert wurden.
+1. **Template validated**: repository-only tests pass. No infrastructure is trusted yet.
+2. **Ready for staging**: real values validate, S3 probes pass, GitHub protections exist and the exact Shopware image passes CI.
+3. **Ready for production**: staging deployment, encrypted backup, restore verification and application smoke tests have passed; production approval is configured.
 
-```text
-GitHub Repository
-  ├─ Branch staging     → GitHub Actions → Staging VPS
-  └─ Branch production  → GitHub Actions → Production VPS
+Passing state 1 does not certify external credentials, DNS, S3 policy, a VPS, a built Shopware image or an application that does not yet exist.
 
-Staging VPS
-  ├─ Caddy HTTPS Reverse Proxy
-  ├─ Varnish Reverse HTTP Cache
-  ├─ Shopware App Container
-  ├─ Shopware Worker Container
-  ├─ Shopware Scheduled Task Container
-  ├─ MariaDB
-  ├─ Valkey/Redis
-  └─ RabbitMQ
+## 2. Official Shopware baseline
 
-Production VPS
-  ├─ gleiche Struktur wie Staging
-  └─ eigene Secrets, eigene Datenbank, eigene Buckets, eigene Volumes
+Shopware 6.7 stable documentation is the only source of truth for Shopware-specific decisions:
 
-IONOS Object Storage / S3
-  ├─ public bucket
-  ├─ private bucket
-  └─ backup bucket
-```
+- [Hosting stack and supported versions](https://developer.shopware.com/docs/guides/hosting/)
+- [System requirements](https://developer.shopware.com/docs/guides/installation/system-requirements.html)
+- [Production Docker image](https://developer.shopware.com/docs/guides/hosting/installation-updates/docker.html)
+- [Deployment Helper](https://developer.shopware.com/docs/guides/hosting/installation-updates/deployments/deployment-helper.html)
+- [Flysystem filesystem configuration](https://developer.shopware.com/docs/guides/hosting/infrastructure/filesystem.html)
+- [Message queue](https://developer.shopware.com/docs/guides/hosting/infrastructure/message-queue.html)
+- [Scheduled tasks](https://developer.shopware.com/docs/guides/hosting/infrastructure/scheduled-task.html)
+- [Redis](https://developer.shopware.com/docs/guides/hosting/infrastructure/redis.html)
+- [Reverse HTTP cache](https://developer.shopware.com/docs/guides/hosting/infrastructure/reverse-http-cache.html)
+- [Updates](https://developer.shopware.com/docs/guides/hosting/installation-updates/updates.html)
+- [Security plugin](https://developer.shopware.com/docs/guides/hosting/installation-updates/security-plugin.html)
 
-Es gibt bewusst keinen automatischen Failover-Server. Bei Ausfall eines VPS entsteht Downtime, bis der Server wieder verfügbar ist oder aus einem Backup neu aufgebaut wurde.
+The template currently requires PHP 8.4, MariaDB 11.4 and an exact Shopware 6.7 patch. An update is a reviewed code change: re-check official docs, update Composer/image pins, run the complete suite and test staging before production.
 
-## 2. Offizielle Shopware-Grundlagen
-
-Die Umsetzung orientiert sich an diesen offiziellen Empfehlungen:
-
-- Shopware Docker Image: Projekt wird in ein eigenes Docker Image kopiert und gebaut. Das Shopware-Docker-Base-Image bringt die runtime-relevanten PHP-Erweiterungen und Konfigurationen mit, enthält aber nicht automatisch das Projekt.
-- Shopware empfiehlt für neue Docker-Projekte den Weg über `composer create-project shopware/production` und `composer require shopware/docker`.
-- Der Deployment Helper wird im Container-Deployment genutzt, um Installation, Update, Migrations, Extension-Management, Theme-/Cache-Schritte und Staging-Mode-Aktionen sauber auszuführen.
-- S3-kompatibler Storage ist bei mehreren App-Servern notwendig und auch bei Single-Server-Setups sinnvoll für Redundanz, Backups und skalierenden Speicher.
-- Redis/Valkey ist für Cache, Session, Cart und weitere Speicherbereiche vorgesehen. Für große Cluster sollten getrennte Redis-Instanzen verwendet werden; Variante A nutzt aus Kostengründen eine Instanz je Umgebung.
-- Für produktive Queues empfiehlt Shopware CLI Worker und bei mehr Last eine dedizierte Queue-Technologie. Dieses Template verwendet RabbitMQ.
-- HTTP Cache ist aktiviert. Varnish ist als Reverse HTTP Cache mit der von Shopware empfohlenen XKey-Invalidierung vorgeschaltet.
-- Reverse-Proxy-Adressen werden über die offizielle Shopware-Docker-Recipe `trusted_env.yaml` aus `TRUSTED_PROXIES` in die Symfony-Framework-Konfiguration übernommen.
-
-## 3. Warum ein zentrales Vault-File?
-
-Das Template erzeugt `generated/customer-vault.md` als zentrale Datei für:
-
-- Server-IP-Adressen
-- Domains
-- Linux-User
-- Shopware-Admin-Zugangsdaten
-- DB-Passwörter
-- Redis/Valkey-Passwörter
-- RabbitMQ-Passwörter
-- APP_SECRET je Umgebung
-- SSH Private/Public Keys
-- GitHub-Secret-Namen und -Werte
-- Pfade der generierten Dateien
-- Server-Summaries nach remote Setup
-- Known-Hosts für GitHub Actions
-
-Dieses File ist bewusst menschenlesbar, damit es in einen Passwort-Manager kopiert werden kann. Es darf niemals committet werden.
-
-## 4. Skript 00 — Vorbereitung
-
-`bash scripts/00-prepare-customer.sh`
-
-### Zweck
-
-Das Skript läuft lokal und erzeugt alle kundenspezifischen Daten, die später von den anderen Skripten verwendet werden.
-
-### Eingabe
-
-`customer.env`, erstellt aus:
-
-```bash
-cp templates/customer/customer.env.example customer.env
-```
-
-### Was es prüft
-
-- nicht als root ausgeführt
-- `bash`, `python3`, `openssl`, `ssh-keygen`, `ssh`, `scp`, `git`
-- optional `docker`, `composer`, `gh`
-- Pflichtvariablen wie Domains, Server-IPs, GitHub-Repo, Linux-User
-
-### Was es erzeugt
+## 3. Architecture and trust boundaries
 
 ```text
-generated/customer.env
-generated/staging-server.env
-generated/production-server.env
-generated/ssh/staging-admin-ed25519
-generated/ssh/staging-github-actions-ed25519
-generated/ssh/production-admin-ed25519
-generated/ssh/production-github-actions-ed25519
-generated/customer-vault.md
+developer workstation
+  ├── non-executable customer config
+  ├── generated plaintext setup vault and four SSH keys
+  └── Git repository without secrets
+          │
+          ├── GitHub CI: static tests → Composer audit → image build → Trivy → SBOM
+          │       ├── staging environment → forced SSH deploy gate
+          │       └── production environment + required reviewer → forced SSH deploy gate
+          │
+          ├── staging VPS: Caddy → Varnish → Shopware app
+          │       └── MariaDB + Valkey + RabbitMQ + worker + scheduler
+          └── production VPS: fully separate equivalent stack
+
+S3-compatible storage per environment
+  ├── public runtime bucket: runtime credential, read/write/delete
+  ├── private runtime bucket: same environment runtime credential
+  ├── backup reader: read/list only on both runtime buckets
+  └── dedicated versioned backup bucket: backup writer only
 ```
 
-### Warum getrennte SSH-Keys?
+The provisioning credential is local-only. It configures bucket encryption, versioning and lifecycle rules and removes every version of temporary probe objects. It is never written to a server runtime env file.
 
-- Admin-Key: für menschliche Wartung
-- GitHub-Actions-Key: für CI/CD Deployment
-- getrennt nach Staging und Production
+## 4. External prerequisites
 
-So kann später ein Key gezielt rotiert werden, ohne alle Zugriffe zu verändern.
+Complete these before running a mutating script:
 
-## 5. Skript 05 — Repo Setup
+- Two fresh dedicated 64-bit Ubuntu VPSs, one staging and one production. Supported/tested here: Ubuntu 24.04 LTS and 26.04 LTS.
+- DNS A/AAAA records for the two distinct domains. Ports 80 and 443 must reach only the intended VPS.
+- An initial root SSH key for each fresh VPS.
+- Each VPS's ED25519 SHA-256 host fingerprint obtained independently from the provider console, not from the first network connection.
+- Six dedicated buckets: public, private and backup for each environment.
+- Four credentials per environment:
+  - runtime: list/read/write/delete only on that environment's public/private buckets;
+  - backup reader: list/read only on those runtime buckets;
+  - backup writer: list/read/write/delete only on the dedicated backup bucket;
+  - provisioning: bucket settings, lifecycle, version listing and version deletion for that environment's three buckets.
+- Independent backup-success and restore-verification monitoring URLs for staging and production.
+- A private GitHub repository capable of publishing to GHCR.
+- Local `bash`, Python 3, OpenSSL, OpenSSH, Git, Composer 2.2+, AWS CLI, Docker with Compose/Buildx, `rsync`, `curl` and `rg`.
 
-`bash scripts/05-setup-repo.sh`
+Never reuse a bucket, access key, secret, server, domain, SSH deploy key, backup passphrase or monitoring URL between staging and production. Validation rejects reused buckets and access keys, but the operator must also enforce least-privilege policies at the provider.
 
-### Zweck
+## 5. Read-only repository baseline
 
-Das Skript macht aus dem Template ein echtes Shopware-Kundenrepo.
-
-### Schritte
-
-1. Git-Repository prüfen oder initialisieren.
-2. Shopware Production Template per Composer erzeugen.
-3. Erforderliche Pakete installieren:
-   - `shopware/docker`
-   - `shopware/deployment-helper`
-   - `league/flysystem-async-aws-s3`
-   - `symfony/amqp-messenger`
-4. Dockerfile schreiben.
-5. Lokales Compose-Setup schreiben.
-6. Shopware-Konfigurationen für S3, Varnish, Deployment und Admin Worker schreiben.
-7. GitHub Actions schreiben.
-8. `.env.local.example` und `.env.local` schreiben.
-9. Vault erweitern.
-
-### Ergebnis
-
-Das Repository enthält danach alles, was für lokalen Build und GitHub Actions nötig ist.
-
-## 6. Skript 04 — S3/Object Storage
-
-`bash scripts/04-setup-s3-storage.sh`
-
-### Zweck
-
-Prüft die S3-Konfiguration und kann Buckets mit AWS CLI anlegen.
-
-### Buckets
-
-- Public Bucket: Medien, Themes, Assets, Sitemaps
-- Private Bucket: private Dateien, Dokumente
-- Backup Bucket: DB-Dumps und Konfigurationsbackups
-
-### Warum S3 in Variante A?
-
-Auch wenn je Umgebung nur ein VPS läuft, sind Medien und Dateien in S3 besser geschützt und leichter migrierbar. Außerdem bleibt die Architektur später clusterfähig.
-
-## 7. Skript 06 — Dateien kopieren und remote Setup starten
-
-`bash scripts/06-deploy-setup-files.sh --target staging --run`
-
-### Zweck
-
-Dieses Skript läuft lokal und automatisiert das Kopieren auf die Server. Die Server-Skripte selbst müssen nicht manuell kopiert werden.
-
-### Was es macht
-
-1. Lädt `generated/customer.env`.
-2. Ermittelt je Target die IP, den initialen SSH-User, Port und Key.
-3. Erstellt remote `/root/shopware-setup`.
-4. Kopiert `scripts/`, `templates/` und `<target>-server.env`.
-5. Ermittelt SSH Known Hosts und schreibt sie in den Vault.
-6. Führt mit `--run` das passende Server-Skript aus.
-7. Kopiert nach Abschluss die Server-Summary zurück und hängt sie an den Vault an.
-
-## 8. Skript 01/02 — Server Setup
-
-Remote auf dem jeweiligen VPS:
-
-```bash
-bash scripts/01-setup-staging-server.sh --config /root/shopware-setup/staging-server.env
-bash scripts/02-setup-production-server.sh --config /root/shopware-setup/production-server.env
-```
-
-Normalerweise wird das durch Skript 06 automatisch ausgeführt.
-
-### Sicherheitschecks
-
-- Staging-Skript akzeptiert nur `ENVIRONMENT=staging`.
-- Production-Skript akzeptiert nur `ENVIRONMENT=production`.
-- Falsche Config führt zu hartem Abbruch.
-- Als Host werden nur Ubuntu 24.04 LTS und 26.04 LTS in 64-Bit akzeptiert.
-
-### Systemschritte
-
-1. Ubuntu-Version und 64-Bit-Architektur prüfen.
-2. System aktualisieren.
-3. Basispakete installieren.
-4. Hostname setzen.
-5. Zeitzone setzen.
-6. Admin-User anlegen.
-7. Deploy-User anlegen.
-8. SSH Public Keys hinterlegen.
-9. Kollidierende Distribution-Pakete entfernen und Docker Engine über die offizielle Deb822-Apt-Quelle (`docker.sources`) installieren.
-10. Docker Compose Plugin prüfen.
-11. SSH härten: Passwort-Login aus, Public-Key-Login an.
-12. UFW Firewall konfigurieren: SSH, 80, 443.
-13. fail2ban und unattended-upgrades aktivieren.
-14. Runtime-Dateien nach `/opt/shopware/<project>/<environment>` schreiben.
-15. Backup Timer per systemd anlegen.
-16. Infrastruktur-Container vorbereiten.
-17. Server-Summary schreiben.
-
-### Runtime-Dateien auf dem Server
-
-```text
-/opt/shopware/<project>/<environment>/.env
-/opt/shopware/<project>/<environment>/compose.yaml
-/opt/shopware/<project>/<environment>/Caddyfile
-/opt/shopware/<project>/<environment>/deploy.sh
-/opt/shopware/<project>/<environment>/status.sh
-/opt/shopware/<project>/<environment>/backup.sh
-```
-
-## 9. Docker Compose auf dem Server
-
-### Services
-
-| Service | Zweck |
-|---|---|
-| `database` | MariaDB für Shopware |
-| `redis` | Valkey/Redis für Cache/Sessions |
-| `rabbitmq` | Message Queue |
-| `init` | Deployment Helper Run |
-| `app` | Shopware App mit FrankenPHP |
-| `worker` | Messenger Worker |
-| `scheduler` | Scheduled Tasks |
-| `varnish` | Reverse HTTP Cache |
-| `caddy` | HTTPS Reverse Proxy |
-
-Die Shopware-Konfiguration verwendet für Varnish `BAN`, XKey-Invalidierung und maximal drei parallele Invalidierungen. Da Shopware seit 6.6 `TRUSTED_PROXIES` nicht mehr automatisch auswertet, erzeugt das Repo zusätzlich `config/packages/trusted_env.yaml` nach der offiziellen Shopware-Docker-Recipe.
-
-### Warum Init-Container?
-
-Der Init-Container führt den Deployment Helper aus. Dadurch laufen Installation, Updates und Migrations reproduzierbar vor dem App-Start.
-
-## 10. GitHub Actions
-
-### CI
-
-`.github/workflows/ci.yml` führt Syntax-/Template-Tests sowie die Server-Skript-Simulationen mit Ubuntu 24.04 und 26.04 aus und baut das Docker Image ohne Push.
-
-### Staging Deployment
-
-Push auf Branch `staging`:
-
-1. Docker Build.
-2. Push nach GHCR.
-3. SSH zum Staging-Server.
-4. Docker Login auf dem Server.
-5. `deploy.sh` mit exaktem Image-Tag ausführen.
-
-### Production Deployment
-
-Push auf Branch `production` macht dasselbe für Production.
-
-### GitHub Environments
-
-Die Environments `staging` und `production` müssen manuell in GitHub angelegt werden. Dort werden die Secrets aus dem Vault eingetragen. Für Production können Approval Rules aktiviert werden.
-
-## 11. Backups
-
-Jeder Server erhält einen systemd Timer:
-
-```text
-shopware-staging-backup.timer
-shopware-production-backup.timer
-```
-
-Der Timer führt `backup.sh` aus. Dieses Skript erzeugt:
-
-- gzip-komprimierten MariaDB-Dump
-- gzip-komprimiertes Konfigurationsbackup
-- Retention Cleanup nach `BACKUP_RETENTION_DAYS`
-
-Optional kann das Backup-Skript später um Upload ins S3 Backup Bucket erweitert werden.
-
-## 12. Tests
-
-### Syntax Tests
+Before entering any real secret:
 
 ```bash
 bash scripts/07-run-tests.sh --syntax-only
+bash scripts/08-preflight.sh --local-only
 ```
 
-Prüft alle Bash-Skripte mit `bash -n` und Template-Platzhalter.
+These checks do not initialize Shopware or start the app. `07-run-tests.sh` starts containers only when explicitly called with `--docker`.
 
-### Bats
+## 6. Customer configuration
+
+Create a local ignored file:
 
 ```bash
-bash scripts/07-run-tests.sh --bats
+cp templates/customer/customer.env.example customer.env
+chmod 600 customer.env
 ```
 
-Testet Bash-Funktionen wie Secret-Generierung, Slug-Normalisierung und Sicherheitschecks.
+Replace every `CHANGE_ME` and example value. Important constraints:
 
-### Docker-Simulation
+- `GITHUB_OWNER` and `GITHUB_REPO` use their lowercase canonical names so the GHCR image reference is valid.
+- `SHOPWARE_VERSION` is an exact `6.7.x.y` version, not a range.
+- Image references include both a tag and `@sha256:<64 hex>`.
+- Staging and production hosts, domains, buckets and access keys are distinct.
+- `INSTALL_BASE_DIR` stays `/opt/shopware`; root SSH disabling stays enabled.
+- The Store account fields may be empty. If supplied, staging and production values must be intentionally reviewed.
+- S3 endpoints and healthcheck URLs use HTTPS.
+- Shell syntax, command substitutions and unknown keys are rejected; the file is parsed as data, never executed.
+
+Run the genuinely mutation-free plan first:
 
 ```bash
+bash scripts/00-prepare-customer.sh --dry-run
+```
+
+Then prepare once:
+
+```bash
+bash scripts/00-prepare-customer.sh
+```
+
+This creates:
+
+```text
+generated/.prepared
+generated/customer.env
+generated/staging-server.env
+generated/production-server.env
+generated/customer-vault.md
+generated/ssh/staging-admin-ed25519{,.pub}
+generated/ssh/staging-github-actions-ed25519{,.pub}
+generated/ssh/production-admin-ed25519{,.pub}
+generated/ssh/production-github-actions-ed25519{,.pub}
+```
+
+It also generates independent app, admin, database-root, database-app, Valkey, RabbitMQ and backup-encryption secrets per environment. Existing output is never silently overwritten. A full rotation requires both `--rotate-secrets` and `--confirm-rotation PROJECT_SLUG`; plan distribution and server/GitHub replacement before using it.
+
+## 7. Object storage gate
+
+Dry-run performs no network operation:
+
+```bash
+bash scripts/04-setup-s3-storage.sh --target all --dry-run
+```
+
+The real operation is intentionally mutating:
+
+```bash
+bash scripts/04-setup-s3-storage.sh --target staging --create
+bash scripts/04-setup-s3-storage.sh --target production --create
+```
+
+For each environment it:
+
+1. Creates missing dedicated buckets only with `--create`.
+2. Enables versioning and default AES-256 server-side encryption.
+3. Replaces the dedicated backup bucket lifecycle with repository-managed rules:
+   - encrypted database/config archives expire after `BACKUP_RETENTION_DAYS`;
+   - current mirrored Shopware files remain available;
+   - noncurrent file versions expire after the retention period.
+4. Proves runtime public/private write, read and delete access.
+5. Proves public objects are public and private/backup objects are not anonymous.
+6. Proves the backup reader can list/read but cannot write/delete runtime objects.
+7. Proves the backup writer can list/read/write/delete only the backup bucket.
+8. Proves runtime and backup credentials cannot cross their trust boundary.
+9. Removes all versions and delete markers created by the probes.
+10. Writes a config-hash-bound `generated/s3-<environment>.verified` marker.
+
+Use a dedicated backup bucket: the lifecycle operation intentionally owns its lifecycle configuration. A config change invalidates the marker and blocks external preflight until the probes are rerun.
+
+## 8. One-shot Shopware initialization
+
+Preview, then initialize:
+
+```bash
+bash scripts/05-setup-repo.sh --dry-run
+bash scripts/05-setup-repo.sh
+```
+
+The script creates exactly the configured `shopware/production` patch, installs the official `shopware/docker` and `shopware/deployment-helper` packages plus the required Flysystem S3 and AMQP integrations, writes hardened overlays, and runs strict Composer validation and the locked advisory audit.
+
+The generated Dockerfile follows the official Shopware production-image pattern. Build secrets use BuildKit mounts and do not enter layers. `.dockerignore` excludes the entire setup/vault surface. A tracked `.shopware-initialized-by-template` marker and the presence of Shopware files prevent accidental reinitialization.
+
+After initialization, run:
+
+```bash
+bash scripts/07-run-tests.sh --ci-static
 bash scripts/07-run-tests.sh --docker
+bash scripts/10-check-image-pins.sh
 ```
 
-Baut nacheinander Container mit Ubuntu 24.04 und 26.04 und führt die Staging- und Production-Server-Skripte im Testmodus aus. Das testet Skriptlogik, Versionsprüfung und Dateigenerierung, aber nicht echte systemd-/Firewall-/Docker-Host-Semantik.
+Then push a review branch and require GitHub CI to build the real project image, fail on HIGH/CRITICAL findings (including unfixed findings), generate an SBOM and pass `composer audit --locked`.
 
-### Testinfra
+## 9. GitHub controls
+
+Create protected `staging` and `production` branches. For both branches require pull requests with at least one approval and enforce the rules for administrators. Do not allow direct pushes or force pushes.
+
+Create GitHub environments named exactly `staging` and `production`. Production must have at least one independent required reviewer. Add only the environment-specific SSH values from `generated/customer-vault.md`:
+
+```text
+STAGING_SSH_HOST
+STAGING_SSH_PORT
+STAGING_SSH_USER
+STAGING_SSH_PRIVATE_KEY
+STAGING_SSH_KNOWN_HOSTS
+
+PRODUCTION_SSH_HOST
+PRODUCTION_SSH_PORT
+PRODUCTION_SSH_USER
+PRODUCTION_SSH_PRIVATE_KEY
+PRODUCTION_SSH_KNOWN_HOSTS
+```
+
+Add `SHOPWARE_PACKAGES_TOKEN` and `COMPOSER_AUTH_JSON` only when required for private packages. Keep each value at the narrowest repository/environment scope.
+
+Verify external controls and fresh S3 evidence:
 
 ```bash
-bash scripts/07-run-tests.sh --testinfra --host ssh://deploy@staging.shop.example.com
+bash scripts/08-preflight.sh
 ```
 
-Prüft echte Serverzustände:
+Staging deploys on a push to `staging`. Production never deploys on push: manually dispatch `Deploy Production` from the protected `production` branch, type `deploy-production`, and obtain the environment approval.
 
-- unterstütztes 64-Bit-Ubuntu läuft
-- Docker läuft
-- SSH Passwort-Login ist aus
-- UFW aktiv
-- Runtime-Dateien existieren
-- Compose-Dateien sind parsebar
-- Backup Timer existiert
+All GitHub Actions are pinned to complete commit SHAs. The published deployment image is tagged `<environment>-<40-character-git-sha>`. Rolling `latest` tags are convenience references only and are never accepted by the server deploy gate.
 
-## 13. Alltag nach Initialsetup
+## 10. Fresh VPS setup
 
-### Lokale Änderung
+Do staging first. The transfer dry-run performs no network operation:
 
 ```bash
-git checkout staging
-# Änderung durchführen
-git add .
-git commit -m "feat: change storefront"
-git push origin staging
+bash scripts/06-deploy-setup-files.sh --target staging --dry-run
 ```
 
-### Staging prüfen
-
-- Storefront öffnen
-- Admin öffnen
-- Logs prüfen
-- `status.sh` auf dem Server prüfen
-
-### Production freigeben
+The setup command is:
 
 ```bash
-git checkout production
-git merge staging
-git push origin production
+bash scripts/06-deploy-setup-files.sh --target staging --run
 ```
 
-## 14. Rollback
+Before the first SSH connection, the scanned ED25519 host key must exactly match the independently supplied fingerprint. The one-shot remote setup then:
 
-Da jedes Deployment ein getaggtes Docker Image nutzt, kann grundsätzlich auf einen früheren Image-Tag zurückgegangen werden. Achtung: Datenbankmigrationen sind nicht automatisch rückwärtskompatibel. Vor riskanten Updates immer Backup ausführen und Restore-Fähigkeit prüfen.
+- refuses unsupported OS/architecture, occupied web ports, preexisting firewall rules, symlinked/unexpected install paths and initialized hosts;
+- updates the OS and installs Docker from its official repository;
+- creates a human admin and a separate forced-command deploy user;
+- grants Docker only to the human admin, not the deploy user;
+- restricts the deploy user's authorized keys file to the one forced key;
+- allows inbound SSH, HTTP and HTTPS only;
+- disables root SSH, password authentication, forwarding, agent forwarding and tunnelling;
+- enables fail2ban and unattended upgrades;
+- writes separately permissioned Compose, runtime, init and root-only backup env files;
+- installs hardened backup and restore-verification systemd services/timers; they are activated only after the first healthy Shopware deployment;
+- starts only pinned MariaDB, Valkey and RabbitMQ containers;
+- verifies the new admin connection, captures verified known-hosts data, then deletes `/root/shopware-setup`.
 
-## 15. Bewusste Grenzen
+It does not pull or start a Shopware application. If `/var/run/reboot-required` exists, perform a controlled reboot through the verified admin connection and rerun the real-host tests before deployment.
 
-- Kein automatisches Failover.
-- Keine horizontale Skalierung.
-- Keine getrennten Redis-Instanzen für jeden Datentyp.
-- Kein RabbitMQ-Cluster.
-- Kein DB-Replica-Setup.
+Validate staging:
 
-Das Template ist trotzdem so strukturiert, dass diese Komponenten später ausgelagert werden können.
+```bash
+bash scripts/07-run-tests.sh --testinfra-predeploy \
+  --host ssh://ADMIN_USER@STAGING_HOST \
+  --ssh-config /absolute/path/to/ssh-config
+```
 
-## 16. Wiederverwendung für neue Kunden
+Only after the entire staging lifecycle succeeds should production be prepared with the equivalent `--target production --run` command.
 
-1. Neues Repository aus Template erstellen.
-2. `customer.env` ausfüllen.
-3. `00-prepare-customer.sh` laufen lassen.
-4. Vault prüfen und in Passwort-Manager übernehmen.
-5. `05-setup-repo.sh` ausführen.
-6. S3 prüfen/anlegen.
-7. Server mit `06-deploy-setup-files.sh --run` einrichten.
-8. GitHub Secrets/Environments setzen.
-9. Branches pushen.
-10. Staging testen, Production freigeben.
+## 11. Deployment behavior
+
+The GitHub deploy job builds locally, scans before publishing, pushes the immutable SHA tag, then sends the GitHub token through SSH standard input. The deploy account's forced command accepts only the root-owned wrapper, exact environment image prefix and GitHub actor syntax. The wrapper logs into GHCR, invokes the root-owned deployment script and logs out on exit.
+
+The server deployment:
+
+1. Starts/waits for the pinned infrastructure services.
+2. If the database already contains Shopware tables, requires a successful encrypted offsite backup.
+3. Records the previous image in root-controlled history.
+4. Pulls only app/init/worker/scheduler for the exact image; infrastructure does not drift with an app deploy.
+5. Runs the official Shopware Deployment Helper in the init container.
+6. Starts and verifies app, worker, scheduler, Varnish and Caddy.
+7. Requires successful HTTPS storefront and `/admin` responses plus a Shopware CLI check.
+8. Removes the first-install admin password from `.env.init` after success.
+
+If failure occurs before database migrations complete, the image setting is restored. If migrations completed, no automatic code rollback is attempted because code/database compatibility requires human judgment.
+
+After the first staging deployment, rerun the same host command with `--testinfra` instead of `--testinfra-predeploy`; the full scope requires the Shopware app, workers, HTTPS and both activated timers.
+
+Manual rollback requires an exact prior environment/SHA image and the literal acknowledgement `acknowledge-database-compatibility`. It never reverses database migrations. Confirm compatibility in the relevant official Shopware update notes first.
+
+## 12. Backups and restore verification
+
+The root-only backup service:
+
+- synchronizes current public/private Shopware files to dedicated backup prefixes using the read-only runtime reader and backup writer;
+- verifies the source and destination trees;
+- creates a consistent MariaDB dump and configuration archive;
+- encrypts the archive with AES-256-CBC, PBKDF2 and 600,000 iterations using the environment-specific passphrase;
+- authenticates the encrypted archive with HMAC-SHA-256 (encrypt-then-MAC);
+- uploads the encrypted archive and HMAC, verifies both objects and reports start/success/failure to the backup monitor.
+
+The backup bucket is versioned. Mirrored current files are retained; deleted/changed file versions and encrypted archive history follow the configured lifecycle.
+
+The separate scheduled restore-verification service:
+
+- lists the public/private file mirrors and retrieves a file from each nonempty tree;
+- downloads the newest encrypted archive and HMAC;
+- verifies the HMAC before decryption, rejects unsafe archive paths and validates both embedded archives;
+- creates an isolated temporary MariaDB database, imports the dump, checks for tables and drops the database;
+- reports independently to the restore monitor.
+
+This proves recoverability without modifying the live Shopware database. Before production launch, additionally document and rehearse the human disaster-recovery procedure on a disposable server, including DNS, file mirror restore, secret recovery and maximum acceptable recovery time.
+
+## 13. Local integration
+
+Local Compose is an integration environment, not production and not a replacement for the official Shopware developer guidance. It binds MariaDB, Valkey, RabbitMQ and Shopware only to `127.0.0.1`.
+
+After initialization:
+
+```bash
+docker compose --env-file .env.local -f compose.local.yaml up --build
+```
+
+The local credentials in `.env.local` are intentionally development-only. Never use them on a server. The production-only S3 package configuration is scoped to `when@prod`, so local development does not contact production storage.
+
+## 14. Test matrix
+
+| Gate | What it proves | What it does not prove |
+|---|---|---|
+| `--syntax-only` | Bash syntax, template tokens/renders, server/local Compose parsing | External systems |
+| `--bats` | Parser injection resistance, allowlists, dry-run and safety behavior | Real Ubuntu services |
+| `--ci-static` | Syntax + renders + ShellCheck + Bats + actionlint + local preflight | Built Shopware image |
+| `--docker` | Staging/production setup logic on Ubuntu 24.04 and 26.04 fixtures | systemd/UFW on a booted VPS |
+| `08-preflight.sh` | Current S3 evidence and GitHub branch/environment controls | Application correctness |
+| GitHub image CI | Composer lock/advisories, build, secret scan, Trivy, SBOM | Live server behavior |
+| `--testinfra-predeploy` | Real host hardening and root-only runtime files | Shopware app behavior |
+| `--testinfra` | Real host hardening, files, services and timers | Business workflow correctness |
+| Staging smoke/restore | End-to-end operational readiness | High availability |
+
+Any failed gate is a stop condition. Do not bypass Trivy, Composer advisories, host-key checks, S3 isolation, production review or the pre-deployment backup.
+
+## 15. Secret cleanup
+
+Only after all vault values and private keys are in the approved password manager, GitHub secrets are set, both admin accesses work and the server setup copy is gone:
+
+```bash
+bash scripts/09-clean-sensitive-output.sh --dry-run --confirm PROJECT_SLUG
+bash scripts/09-clean-sensitive-output.sh --confirm PROJECT_SLUG
+```
+
+This removes local `customer.env`, generated customer/server configs, vault and generated SSH keys. It cannot guarantee physical erasure from SSD/copy-on-write media or workstation backups. Use full-disk encryption and exclude this directory from cloud sync and backup before generating secrets.
+
+## 16. Final go/no-go checklist
+
+### Go for staging initialization
+
+- All placeholders replaced and strict validation passes.
+- Independent ED25519 fingerprints recorded.
+- S3 probes for both environments pass and their markers match the config hash.
+- Generated secrets are secured in a password manager.
+- Exact Shopware project initialized and all local/CI gates pass.
+- GitHub branches/environments/protection and production reviewer pass external preflight.
+- DNS and fresh VPS ownership are independently confirmed.
+
+### Go for production
+
+- Every staging item above is complete.
+- Staging Shopware deployment and business smoke tests pass.
+- Backup monitor and independent restore monitor both report success.
+- A real staging restore rehearsal and recovery runbook are accepted.
+- Production VPS real-host tests pass after any required reboot.
+- The production commit is approved and deployed only through manual dispatch.
+
+If any item is unknown, the answer is **no-go**. Unknown external state must never be inferred from a green repository-only test.

@@ -1,8 +1,6 @@
 deployment:
   extension-management:
     enabled: true
-  store:
-    license-domain: '{{SHOPWARE_STORE_LICENSE_DOMAIN}}'
   staging:
     enabled: false
   maintenance:

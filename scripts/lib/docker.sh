@@ -21,9 +21,7 @@ install_docker_engine() {
     run_cmd install -m 0755 -d /etc/apt/keyrings
     run_cmd curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
     run_cmd chmod a+r /etc/apt/keyrings/docker.asc
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; arch="$(dpkg --print-architecture)"
+    codename="$(get_os_release_value /etc/os-release UBUNTU_CODENAME 2>/dev/null || get_os_release_value /etc/os-release VERSION_CODENAME)"; arch="$(dpkg --print-architecture)"
     [[ -n "$codename" ]] || die "Ubuntu-Codename konnte nicht aus /etc/os-release gelesen werden."
     if [[ "$DRY_RUN" == "1" ]]; then
       log "[DRY-RUN] Docker APT-Quelle für $codename/$arch schreiben"
@@ -47,6 +45,7 @@ EOFD
 
 add_user_to_docker_group() {
   local username="$1"
+  if [[ "$DRY_RUN" == "1" ]]; then log "[DRY-RUN] Docker-Gruppe für Administrator $username"; return 0; fi
   if [[ "$TEST_MODE" == "1" ]]; then ok "TEST_MODE: Docker-Gruppe für $username würde gesetzt"; return 0; fi
   getent group docker >/dev/null || groupadd docker
   usermod -aG docker "$username"
@@ -56,9 +55,9 @@ add_user_to_docker_group() {
 check_docker_compose() {
   if [[ "${DRY_RUN:-0}" == "1" ]]; then ok "DRY-RUN: Docker-Check übersprungen"; return 0; fi
   if command_exists docker; then
-    docker version >/dev/null 2>&1 && ok "Docker Daemon erreichbar" || warn "Docker-Befehl vorhanden, Daemon aber nicht erreichbar"
-    docker compose version >/dev/null 2>&1 && ok "Docker Compose Plugin vorhanden" || die "Docker Compose Plugin fehlt"
+    if docker version >/dev/null 2>&1; then ok "Docker Daemon erreichbar"; else warn "Docker-Befehl vorhanden, Daemon aber nicht erreichbar"; fi
+    if docker compose version >/dev/null 2>&1; then ok "Docker Compose Plugin vorhanden"; else die "Docker Compose Plugin fehlt"; fi
   else
-    [[ "$TEST_MODE" == "1" ]] && ok "TEST_MODE: Docker-Check übersprungen" || die "Docker fehlt"
+    if [[ "$TEST_MODE" == "1" ]]; then ok "TEST_MODE: Docker-Check übersprungen"; else die "Docker fehlt"; fi
   fi
 }

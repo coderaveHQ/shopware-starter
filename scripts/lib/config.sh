@@ -1,17 +1,116 @@
 #!/usr/bin/env bash
-# Config loading helpers. Config files are shell-style KEY=value files.
+# Strict, non-executing configuration loading and serialization helpers.
+
+# Arrays are consumed by scripts after this library is sourced.
+# shellcheck disable=SC2034
+CUSTOMER_CONFIG_KEYS=(
+  CUSTOMER_NAME PROJECT_SLUG ADMIN_EMAIL TECHNICAL_CONTACT_EMAIL TIMEZONE
+  GITHUB_OWNER GITHUB_REPO
+  STAGING_SERVER_HOST STAGING_ROOT_SSH_USER STAGING_ROOT_SSH_PORT STAGING_ROOT_SSH_KEY_PATH STAGING_SSH_HOST_KEY_SHA256 STAGING_DOMAIN
+  PRODUCTION_SERVER_HOST PRODUCTION_ROOT_SSH_USER PRODUCTION_ROOT_SSH_PORT PRODUCTION_ROOT_SSH_KEY_PATH PRODUCTION_SSH_HOST_KEY_SHA256 PRODUCTION_DOMAIN
+  ADMIN_USER DEPLOY_USER SSH_PORT DISABLE_ROOT_SSH INSTALL_BASE_DIR
+  SHOPWARE_VERSION PHP_VERSION SHOPWARE_DOCKER_BASE_IMAGE SHOPWARE_CLI_IMAGE
+  MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE VARNISH_IMAGE CADDY_IMAGE
+  INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME SHOPWARE_USAGE_DATA_CONSENT
+  STAGING_S3_ENDPOINT STAGING_S3_REGION STAGING_S3_USE_PATH_STYLE STAGING_S3_PUBLIC_BUCKET STAGING_S3_PRIVATE_BUCKET STAGING_S3_PUBLIC_URL STAGING_S3_ACCESS_KEY STAGING_S3_SECRET_KEY STAGING_S3_BACKUP_READER_ACCESS_KEY STAGING_S3_BACKUP_READER_SECRET_KEY STAGING_S3_PROVISIONING_ACCESS_KEY STAGING_S3_PROVISIONING_SECRET_KEY
+  PRODUCTION_S3_ENDPOINT PRODUCTION_S3_REGION PRODUCTION_S3_USE_PATH_STYLE PRODUCTION_S3_PUBLIC_BUCKET PRODUCTION_S3_PRIVATE_BUCKET PRODUCTION_S3_PUBLIC_URL PRODUCTION_S3_ACCESS_KEY PRODUCTION_S3_SECRET_KEY PRODUCTION_S3_BACKUP_READER_ACCESS_KEY PRODUCTION_S3_BACKUP_READER_SECRET_KEY PRODUCTION_S3_PROVISIONING_ACCESS_KEY PRODUCTION_S3_PROVISIONING_SECRET_KEY
+  STAGING_BACKUP_S3_ENDPOINT STAGING_BACKUP_S3_REGION STAGING_BACKUP_S3_BUCKET STAGING_BACKUP_S3_ACCESS_KEY STAGING_BACKUP_S3_SECRET_KEY STAGING_BACKUP_HEALTHCHECK_URL STAGING_RESTORE_HEALTHCHECK_URL
+  PRODUCTION_BACKUP_S3_ENDPOINT PRODUCTION_BACKUP_S3_REGION PRODUCTION_BACKUP_S3_BUCKET PRODUCTION_BACKUP_S3_ACCESS_KEY PRODUCTION_BACKUP_S3_SECRET_KEY PRODUCTION_BACKUP_HEALTHCHECK_URL PRODUCTION_RESTORE_HEALTHCHECK_URL
+  BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE RESTORE_TEST_DAY RESTORE_TEST_HOUR RESTORE_TEST_MINUTE
+  STAGING_SHOPWARE_STORE_ACCOUNT_EMAIL STAGING_SHOPWARE_STORE_ACCOUNT_PASSWORD STAGING_SHOPWARE_STORE_SHOP_SECRET STAGING_SHOPWARE_STORE_LICENSE_DOMAIN
+  PRODUCTION_SHOPWARE_STORE_ACCOUNT_EMAIL PRODUCTION_SHOPWARE_STORE_ACCOUNT_PASSWORD PRODUCTION_SHOPWARE_STORE_SHOP_SECRET PRODUCTION_SHOPWARE_STORE_LICENSE_DOMAIN
+)
+
+# shellcheck disable=SC2034
+GENERATED_CUSTOMER_CONFIG_KEYS=("${CUSTOMER_CONFIG_KEYS[@]}" GHCR_IMAGE)
+
+# shellcheck disable=SC2034
+SERVER_CONFIG_KEYS=(
+  ENVIRONMENT CUSTOMER_NAME PROJECT_SLUG PRIMARY_DOMAIN ADMIN_EMAIL TIMEZONE
+  ADMIN_USER DEPLOY_USER ADMIN_PUBLIC_KEY GITHUB_ACTIONS_DEPLOY_PUBLIC_KEY INITIAL_SSH_PORT SSH_PORT DISABLE_ROOT_SSH
+  INSTALL_BASE_DIR INSTALL_DIR COMPOSE_PROJECT_NAME GITHUB_OWNER GITHUB_REPO GHCR_IMAGE SHOPWARE_IMAGE
+  PHP_VERSION SHOPWARE_DOCKER_BASE_IMAGE SHOPWARE_CLI_IMAGE MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE VARNISH_IMAGE CADDY_IMAGE
+  APP_ENV APP_URL APP_SECRET INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME INSTALL_ADMIN_PASSWORD
+  SHOPWARE_USAGE_DATA_CONSENT SHOPWARE_DEPLOYMENT_STAGING
+  DB_NAME DB_USER DB_ROOT_PASSWORD DB_PASSWORD REDIS_PASSWORD RABBITMQ_USER RABBITMQ_PASSWORD
+  S3_ENDPOINT S3_REGION S3_USE_PATH_STYLE S3_PUBLIC_BUCKET S3_PRIVATE_BUCKET S3_PUBLIC_URL S3_ACCESS_KEY S3_SECRET_KEY S3_BACKUP_READER_ACCESS_KEY S3_BACKUP_READER_SECRET_KEY
+  BACKUP_S3_ENDPOINT BACKUP_S3_REGION BACKUP_S3_BUCKET BACKUP_S3_ACCESS_KEY BACKUP_S3_SECRET_KEY BACKUP_ENCRYPTION_PASSPHRASE BACKUP_HEALTHCHECK_URL RESTORE_HEALTHCHECK_URL
+  BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE RESTORE_TEST_DAY RESTORE_TEST_HOUR RESTORE_TEST_MINUTE
+  SHOPWARE_STORE_ACCOUNT_EMAIL SHOPWARE_STORE_ACCOUNT_PASSWORD SHOPWARE_STORE_SHOP_SECRET SHOPWARE_STORE_LICENSE_DOMAIN
+)
 
 load_env_file() {
-  local file="$1"
+  local file="$1" tmp key value allowed_key
+  shift
   assert_file_exists "$file"
-  set -a
-  # shellcheck disable=SC1090
-  . "$file"
-  set +a
-  ok "Konfiguration geladen: $file"
+  [[ "$#" -gt 0 ]] || die "Interner Fehler: Für $file wurde keine Variablen-Allowlist angegeben."
+  # A missing file entry must never be inherited from the caller's environment
+  # or from a config loaded earlier in the same process.
+  for allowed_key in "$@"; do unset "$allowed_key"; done
+  tmp="$(mktemp "${TMPDIR:-/tmp}/shopware-infra-env.XXXXXX")"
+  chmod 600 "$tmp"
+  if ! python3 - "$file" "$@" > "$tmp" <<'PYENV'
+import pathlib
+import re
+import shlex
+import sys
+
+path = pathlib.Path(sys.argv[1])
+allowed = set(sys.argv[2:])
+seen = set()
+
+with path.open(encoding="utf-8") as handle:
+    for line_number, original in enumerate(handle, 1):
+        line = original.rstrip("\r\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Z][A-Z0-9_]*)=(.*)", line)
+        if not match:
+            raise SystemExit(f"{path}:{line_number}: expected KEY=value")
+        key, raw = match.groups()
+        if key not in allowed:
+            raise SystemExit(f"{path}:{line_number}: unsupported key {key}")
+        if key in seen:
+            raise SystemExit(f"{path}:{line_number}: duplicate key {key}")
+        seen.add(key)
+        if raw == "":
+            value = ""
+        else:
+            try:
+                parts = shlex.split(raw, comments=False, posix=True)
+            except ValueError as exc:
+                raise SystemExit(f"{path}:{line_number}: invalid value for {key}: {exc}")
+            if len(parts) != 1:
+                raise SystemExit(f"{path}:{line_number}: quote values containing whitespace for {key}")
+            value = parts[0]
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise SystemExit(f"{path}:{line_number}: control characters are forbidden in {key}")
+        sys.stdout.buffer.write(key.encode("ascii") + b"\0" + value.encode("utf-8") + b"\0")
+PYENV
+  then
+    rm -f "$tmp"
+    die "Konfiguration ist ungültig: $file"
+  fi
+
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    printf -v "$key" '%s' "$value"
+    export "${key?}"
+  done < "$tmp"
+  rm -f "$tmp"
+  ok "Konfiguration sicher geladen: $file"
 }
 
-write_kv() { local file="$1" key="$2" value="$3"; printf '%s=%q\n' "$key" "$value" >> "$file"; }
+write_kv() {
+  local file="$1" key="$2" value="$3"
+  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "Ungültiger Konfigurationsschlüssel: $key"
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "Mehrzeilige Werte sind für $key nicht erlaubt."
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\\$}"
+  value="${value//\`/\\\`}"
+  printf '%s="%s"\n' "$key" "$value" >> "$file"
+}
 
 normalize_slug() {
   local value="$1"
