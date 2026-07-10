@@ -1,0 +1,34 @@
+# Generated customer secrets and runtime output
+generated/*
+!generated/.gitkeep
+customer.env
+*.secret
+*.key
+*.pem
+*.env.generated
+secrets.txt
+customer-vault.md
+
+# Shopware/local runtime
+.env.local
+.env.*.local
+var/
+public/media/
+public/thumbnail/
+public/theme/
+public/bundles/
+public/sitemap/
+files/
+
+# Composer/node/build output
+vendor/
+node_modules/
+build/
+dist/
+coverage/
+.phpunit.result.cache
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

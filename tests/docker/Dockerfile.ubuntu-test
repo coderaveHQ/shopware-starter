@@ -1,0 +1,7 @@
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client openssh-server python3 openssl passwd sudo procps iproute2 \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo
+COPY . /repo
