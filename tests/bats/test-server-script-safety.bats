@@ -36,6 +36,19 @@
   rm -rf "$isolated_repo"
 }
 
+@test "customer preparation rejects storefront domains shared across environments" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  config="$(mktemp)"
+  cp "$REPO_ROOT/tests/fixtures/customer.env" "$config"
+  sed -i.bak 's|PRODUCTION_STOREFRONT_DOMAINS=.*|PRODUCTION_STOREFRONT_DOMAINS="shop.customer.internal,staging.customer.internal,storefront-3.customer.internal"|' "$config"
+  rm -f "$config.bak"
+  chmod 600 "$config"
+  run bash "$REPO_ROOT/scripts/00-prepare-customer.sh" --config "$config" --dry-run
+  rm -f "$config"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"vollständig getrennt"* ]]
+}
+
 @test "deployment accepts registry digests only and is CI gated" {
   REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
   grep -q '@sha256:' "$REPO_ROOT/templates/server/deploy-wrapper.sh.tpl"

@@ -35,7 +35,7 @@ root = pathlib.Path(sys.argv[1])
 pattern = re.compile(r"(?<!\$)\{\{([^}]+)\}\}")
 for path in sorted((root / 'templates').rglob('*.tpl')):
     for token in pattern.findall(path.read_text(encoding='utf-8')):
-        if not re.fullmatch(r"[A-Z0-9_]+(?:\|(dotenv|shell|yaml))?", token):
+        if not re.fullmatch(r"[A-Z0-9_]+(?:\|(dotenv|shell|yaml|caddy))?", token):
             raise SystemExit(f"Unsupported template token {token!r} in {path}")
 print('template placeholder check ok')
 PY
@@ -55,6 +55,7 @@ rendered_template_tests() {
   render_template "$REPO_ROOT/templates/shopware/env.backup.tpl" "$tmp/.env.backup"
   render_template "$REPO_ROOT/templates/docker/compose.server.yaml.tpl" "$tmp/compose.yaml"
   render_template "$REPO_ROOT/templates/docker/Caddyfile.tpl" "$tmp/Caddyfile"
+  grep -Fxq 'shop.template.internal, storefront-2.template.internal, storefront-3.template.internal {' "$tmp/Caddyfile"
   mkdir "$tmp/local"
   render_template "$REPO_ROOT/templates/shopware/env.local.tpl" "$tmp/local/.env.local"
   render_template "$REPO_ROOT/templates/docker/compose.local.yaml.tpl" "$tmp/local/compose.local.yaml"

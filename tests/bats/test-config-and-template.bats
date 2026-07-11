@@ -11,9 +11,9 @@ setup() {
 teardown() { rm -rf "$TEST_TMPDIR"; }
 
 @test "normalize_slug normalizes names" {
-  run normalize_slug "Heinz Hesse GmbH & Co. KG"
+  run normalize_slug "Example Customer GmbH & Co. KG"
   [ "$status" -eq 0 ]
-  [ "$output" = "heinz-hesse-gmbh-co-kg" ]
+  [ "$output" = "example-customer-gmbh-co-kg" ]
 }
 
 @test "render_template applies explicit filters and preserves GitHub expressions" {
@@ -24,6 +24,26 @@ teardown() { rm -rf "$TEST_TMPDIR"; }
   grep -q 'raw=Shopware' "$TEST_TMPDIR/output.txt"
   grep -q 'dotenv="safe-value"' "$TEST_TMPDIR/output.txt"
   grep -q '\${{ github.sha }}' "$TEST_TMPDIR/output.txt"
+}
+
+@test "render_template emits only validated Caddy storefront addresses" {
+  printf '{{STOREFRONT_DOMAINS|caddy}} {\n}\n' > "$TEST_TMPDIR/caddy.tpl"
+  export STOREFRONT_DOMAINS="shop.example.com,storefront-2.example.com,storefront-3.example.com"
+  run render_template "$TEST_TMPDIR/caddy.tpl" "$TEST_TMPDIR/Caddyfile"
+  [ "$status" -eq 0 ]
+  grep -Fxq 'shop.example.com, storefront-2.example.com, storefront-3.example.com {' "$TEST_TMPDIR/Caddyfile"
+
+  export STOREFRONT_DOMAINS='shop.example.com,evil.example.com { respond "owned" }'
+  run render_template "$TEST_TMPDIR/caddy.tpl" "$TEST_TMPDIR/invalid-Caddyfile"
+  [ "$status" -ne 0 ]
+}
+
+@test "storefront domain lists reject duplicates whitespace and uppercase" {
+  is_valid_domain_list "shop.example.com,storefront-2.example.com,storefront-3.example.com"
+  domain_list_contains "shop.example.com,storefront-2.example.com,storefront-3.example.com" "storefront-2.example.com"
+  ! is_valid_domain_list "shop.example.com,shop.example.com"
+  ! is_valid_domain_list "shop.example.com, storefront-2.example.com"
+  ! is_valid_domain_list "Shop.example.com,storefront-2.example.com"
 }
 
 @test "load_env_file treats command substitution as inert data" {

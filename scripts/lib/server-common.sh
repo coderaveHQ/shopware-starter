@@ -74,7 +74,8 @@ write_server_summary() {
 # Server Summary: $PROJECT_SLUG / $ENVIRONMENT
 
 - Generated: $(date -Iseconds)
-- Domain: https://$PRIMARY_DOMAIN
+- Primary domain: https://$PRIMARY_DOMAIN
+- Storefront domains: $STOREFRONT_DOMAINS
 - Public IP detected: $public_ip
 - Install dir: $INSTALL_DIR
 - Admin user: $ADMIN_USER

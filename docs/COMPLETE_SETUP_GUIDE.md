@@ -42,9 +42,9 @@ developer workstation
           │       ├── staging environment → forced SSH deploy gate
           │       └── production environment + manual confirmation → forced SSH deploy gate
           │
-          ├── staging VPS: Caddy → Varnish → Shopware app
+          ├── staging VPS: explicit storefront domains → Caddy → Varnish → Shopware app
           │       └── MariaDB + Valkey + RabbitMQ + worker + scheduler
-          └── production VPS: fully separate equivalent stack
+          └── production VPS: explicit storefront domains → fully separate equivalent stack
 
 S3-compatible storage per environment
   ├── public runtime bucket: runtime credential, read/write/delete
@@ -60,7 +60,7 @@ The provisioning credential is local-only. It configures bucket encryption, vers
 Complete these before running a mutating script:
 
 - Two fresh dedicated 64-bit Ubuntu VPSs, one staging and one production. Supported/tested here: Ubuntu 24.04 LTS and 26.04 LTS. Each server must have at least 8 GiB RAM and 10 GiB free disk; four CPU cores and 16 GiB RAM are recommended. The setup verifies RAM and disk before its first mutation and warns below four CPU cores.
-- DNS A/AAAA records for the two distinct domains. Ports 80 and 443 must reach only the intended VPS.
+- DNS A/AAAA records for every configured storefront domain. All staging domains must resolve only to the staging VPS and all production domains only to the production VPS. Ports 80 and 443 must reach only the intended VPS.
 - An initial root SSH key for each fresh VPS.
 - Each VPS's ED25519 SHA-256 host fingerprint obtained independently from the provider console, not from the first network connection.
 - Six dedicated buckets: public, private and backup for each environment.
@@ -100,7 +100,9 @@ Replace every `CHANGE_ME` and example value. Important constraints:
 - `GITHUB_OWNER` and `GITHUB_REPO` use their lowercase canonical names so the GHCR image reference is valid.
 - `SHOPWARE_VERSION` is an exact `6.7.x.y` version, not a range.
 - Image references include both a tag and `@sha256:<64 hex>`.
-- Staging and production hosts, domains, buckets and access keys are distinct.
+- `STAGING_DOMAIN` and `PRODUCTION_DOMAIN` are the canonical `APP_URL` and deployment healthcheck targets.
+- `STAGING_STOREFRONT_DOMAINS` and `PRODUCTION_STOREFRONT_DOMAINS` are comma-separated allowlists without whitespace. Each canonical domain must occur in its environment's allowlist; duplicates, invalid domains and cross-environment reuse are rejected.
+- Staging and production hosts, storefront domains, buckets and access keys are distinct.
 - `INSTALL_BASE_DIR` stays `/opt/shopware`; root SSH disabling stays enabled.
 - The Store account fields may be empty. If supplied, staging and production values must be intentionally reviewed.
 - S3 endpoints and healthcheck URLs use HTTPS.
@@ -221,6 +223,14 @@ bash scripts/08-preflight.sh
 Staging deploys on a push to `staging`. Production never deploys on push: manually dispatch `Deploy Production` from the protected `production` branch and type `deploy-production`.
 
 All GitHub Actions are pinned to complete commit SHAs. CI images are labeled `<environment>-<40-character-git-sha>`, but deployment uses only the registry-returned `ghcr.io/...@sha256:<64-hex>` digest. The server verifies that the environment/commit tag currently resolves to the supplied digest, then records the Git SHA as separate provenance. Rolling `latest` tags are convenience references only and are never accepted by the server deploy gate. Staging is triggered only by successful CI for the exact staging commit; production independently verifies a successful CI run for its exact dispatched commit.
+
+## 9.1 Multiple Storefront sales channels
+
+Caddy terminates TLS and forwards only the explicitly configured storefront domains. The concrete domain values belong exclusively in the ignored `customer.env`; the reusable example retains placeholders. Shopware still requires one Storefront sales channel per customer shop before the secondary domains return a usable storefront.
+
+After the first staging deployment, create and configure every Storefront sales channel in Shopware Administration. Assign each staging URL with HTTPS, language, currency, snippet set, navigation, customer group, payment methods and shipping methods. Complete business smoke tests through every staging domain before configuring the equivalent production domains. `APP_URL` deliberately remains the configured primary domain; Shopware supports one externally reachable canonical URL while sales channels own the additional domains.
+
+When domains represent separate shops, do not point them at one sales channel merely to make the hosts respond; keep those shops separately configurable. Do not add wildcard hosts to Caddy.
 
 ## 10. Fresh VPS setup
 
@@ -363,6 +373,7 @@ This removes local `customer.env`, generated customer/server configs, vault and 
 - Exact Shopware project initialized and all local/CI gates pass.
 - GitHub branches, environments and branch protection pass external preflight.
 - DNS and fresh VPS ownership are independently confirmed.
+- All configured staging Storefront sales channels are assigned to their explicit HTTPS domains and pass business smoke tests.
 
 ### Go for production
 
@@ -370,6 +381,7 @@ This removes local `customer.env`, generated customer/server configs, vault and 
 - Staging Shopware deployment and business smoke tests pass.
 - Backup monitor and independent restore monitor both report success.
 - A real staging restore rehearsal and recovery runbook are accepted.
+- All configured production Storefront sales channels are assigned to their explicit HTTPS domains and pass business smoke tests.
 - Production VPS real-host tests pass after any required reboot.
 - The production commit is approved and deployed only through manual dispatch.
 

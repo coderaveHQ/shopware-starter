@@ -5,6 +5,8 @@ This repository prepares a self-hosted Shopware 6.7 project for two isolated, si
 - Staging: its own Ubuntu VPS, credentials, database, object storage, backup storage, SSH keys and GitHub environment.
 - Production: a second VPS with a completely separate copy of every resource above.
 
+Each environment can explicitly serve multiple storefront domains through one Shopware backend. One canonical domain remains the environment's `APP_URL` and deployment healthcheck target; Caddy accepts only the validated storefront-domain allowlist. The corresponding Shopware Storefront sales channels must be assigned before staging or production is approved for business use.
+
 Nothing in this template is a running Shopware installation. The preparation and server scripts are intentionally one-shot and refuse unsafe reuse. Server setup starts only MariaDB, Valkey and RabbitMQ; a Shopware application starts for the first time only after a scanned, immutable image is deployed.
 
 The complete operator procedure is in [docs/COMPLETE_SETUP_GUIDE.md](docs/COMPLETE_SETUP_GUIDE.md).
@@ -38,6 +40,7 @@ This is not a high-availability architecture. A VPS failure causes downtime. Bac
 - Shopware is pinned to one exact 6.7 patch; every base/service image has a full SHA-256 digest.
 - `generated/`, local env files, Composer auth, JWT keys and backups are excluded from Git and the Docker build context.
 - Staging and production resources and credentials must be distinct.
+- Staging and production storefront-domain allowlists are validated, non-overlapping and rendered as explicit Caddy hosts.
 - Runtime, backup-reader, backup-writer and provisioning credentials are separate.
 - App containers receive no database-root, initial-admin, provisioning or backup secrets.
 - The initial SSH host key must match an independently obtained ED25519 SHA-256 fingerprint.

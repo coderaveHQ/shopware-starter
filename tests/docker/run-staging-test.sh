@@ -17,7 +17,7 @@ SHOPWARE_INFRA_TEST_MODE=1 bash scripts/01-setup-staging-server.sh --config /roo
 [[ -f /opt/shopware/template-test/staging/compose.yaml ]]
 [[ -x /opt/shopware/template-test/staging/deploy.sh ]]
 grep -q 'SHOPWARE_DEPLOYMENT_STAGING="1"' /opt/shopware/template-test/staging/.env.init
-grep -q 'staging.template.internal' /opt/shopware/template-test/staging/Caddyfile
+grep -Fxq 'staging.template.internal, staging-storefront-2.template.internal, staging-storefront-3.template.internal {' /opt/shopware/template-test/staging/Caddyfile
 grep -q 'forced deployment command' /root/shopware-setup/staging-server-summary.md
 ! grep -Eqi 'opensearch|elasticsearch|SHOPWARE_ES' /opt/shopware/template-test/staging/.env.runtime /opt/shopware/template-test/staging/compose.yaml
 ! id -nG shopware-deploy | tr ' ' '\n' | grep -qx docker

@@ -1,4 +1,4 @@
-{{PRIMARY_DOMAIN}} {
+{{STOREFRONT_DOMAINS|caddy}} {
     encode zstd gzip
     header {
         Strict-Transport-Security "max-age=31536000"

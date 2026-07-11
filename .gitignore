@@ -1,7 +1,7 @@
 # Generated customer secrets and runtime output
 generated/*
 !generated/.gitkeep
-customer.env
+/customer.env
 *.secret
 *.key
 *.pem

@@ -91,6 +91,30 @@ for label in value.split('.'):
 PYDOMAIN
 }
 
+is_valid_domain_list() {
+  python3 - "$1" <<'PYDOMAINLIST' >/dev/null
+import re, sys
+value = sys.argv[1]
+domains = value.split(',')
+if not 1 <= len(domains) <= 20 or len(set(domains)) != len(domains):
+    raise SystemExit(1)
+for domain in domains:
+    if len(domain) > 253 or domain.endswith('.') or '.' not in domain:
+        raise SystemExit(1)
+    for label in domain.split('.'):
+        if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label):
+            raise SystemExit(1)
+PYDOMAINLIST
+}
+
+domain_list_contains() {
+  local list="$1" wanted="$2" domain
+  local -a domains
+  IFS=',' read -r -a domains <<< "$list"
+  for domain in "${domains[@]}"; do [[ "$domain" == "$wanted" ]] && return 0; done
+  return 1
+}
+
 is_valid_host() {
   python3 - "$1" <<'PYHOST' >/dev/null
 import ipaddress, re, sys

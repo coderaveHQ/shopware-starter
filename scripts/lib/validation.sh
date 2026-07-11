@@ -64,10 +64,11 @@ validate_optional_store_config() {
 }
 
 validate_customer_config() {
-  local name first second i j
+  local name first second domain i j
+  local -a staging_domains production_domains
   local buckets keys
-  for name in CUSTOMER_NAME PROJECT_SLUG ADMIN_EMAIL TECHNICAL_CONTACT_EMAIL TIMEZONE GITHUB_OWNER GITHUB_REPO STAGING_SERVER_HOST PRODUCTION_SERVER_HOST STAGING_ROOT_SSH_USER PRODUCTION_ROOT_SSH_USER STAGING_ROOT_SSH_PORT PRODUCTION_ROOT_SSH_PORT STAGING_ROOT_SSH_KEY_PATH PRODUCTION_ROOT_SSH_KEY_PATH STAGING_SSH_HOST_KEY_SHA256 PRODUCTION_SSH_HOST_KEY_SHA256 STAGING_DOMAIN PRODUCTION_DOMAIN ADMIN_USER DEPLOY_USER SSH_PORT DISABLE_ROOT_SSH INSTALL_BASE_DIR SHOPWARE_VERSION PHP_VERSION INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME SHOPWARE_USAGE_DATA_CONSENT BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE RESTORE_TEST_DAY RESTORE_TEST_HOUR RESTORE_TEST_MINUTE; do assert_not_empty "$name"; done
-  for name in CUSTOMER_NAME PROJECT_SLUG ADMIN_EMAIL TECHNICAL_CONTACT_EMAIL GITHUB_OWNER GITHUB_REPO STAGING_SERVER_HOST PRODUCTION_SERVER_HOST STAGING_DOMAIN PRODUCTION_DOMAIN ADMIN_USER; do assert_no_placeholder "$name"; done
+  for name in CUSTOMER_NAME PROJECT_SLUG ADMIN_EMAIL TECHNICAL_CONTACT_EMAIL TIMEZONE GITHUB_OWNER GITHUB_REPO STAGING_SERVER_HOST PRODUCTION_SERVER_HOST STAGING_ROOT_SSH_USER PRODUCTION_ROOT_SSH_USER STAGING_ROOT_SSH_PORT PRODUCTION_ROOT_SSH_PORT STAGING_ROOT_SSH_KEY_PATH PRODUCTION_ROOT_SSH_KEY_PATH STAGING_SSH_HOST_KEY_SHA256 PRODUCTION_SSH_HOST_KEY_SHA256 STAGING_DOMAIN STAGING_STOREFRONT_DOMAINS PRODUCTION_DOMAIN PRODUCTION_STOREFRONT_DOMAINS ADMIN_USER DEPLOY_USER SSH_PORT DISABLE_ROOT_SSH INSTALL_BASE_DIR SHOPWARE_VERSION PHP_VERSION INSTALL_LOCALE INSTALL_CURRENCY INSTALL_ADMIN_USERNAME SHOPWARE_USAGE_DATA_CONSENT BACKUP_RETENTION_DAYS BACKUP_HOUR BACKUP_MINUTE RESTORE_TEST_DAY RESTORE_TEST_HOUR RESTORE_TEST_MINUTE; do assert_not_empty "$name"; done
+  for name in CUSTOMER_NAME PROJECT_SLUG ADMIN_EMAIL TECHNICAL_CONTACT_EMAIL GITHUB_OWNER GITHUB_REPO STAGING_SERVER_HOST PRODUCTION_SERVER_HOST STAGING_DOMAIN STAGING_STOREFRONT_DOMAINS PRODUCTION_DOMAIN PRODUCTION_STOREFRONT_DOMAINS ADMIN_USER; do assert_no_placeholder "$name"; done
   is_valid_slug "$PROJECT_SLUG" || die "PROJECT_SLUG ist ungültig."
   is_valid_email "$ADMIN_EMAIL" || die "ADMIN_EMAIL ist ungültig."
   is_valid_email "$TECHNICAL_CONTACT_EMAIL" || die "TECHNICAL_CONTACT_EMAIL ist ungültig."
@@ -75,6 +76,17 @@ validate_customer_config() {
   is_valid_github_name "$GITHUB_REPO" || die "GITHUB_REPO ist ungültig."
   is_valid_domain "$STAGING_DOMAIN" || die "STAGING_DOMAIN ist ungültig."
   is_valid_domain "$PRODUCTION_DOMAIN" || die "PRODUCTION_DOMAIN ist ungültig."
+  is_valid_domain_list "$STAGING_STOREFRONT_DOMAINS" || die "STAGING_STOREFRONT_DOMAINS muss 1-20 eindeutige, kleingeschriebene Domains ohne Leerzeichen enthalten."
+  is_valid_domain_list "$PRODUCTION_STOREFRONT_DOMAINS" || die "PRODUCTION_STOREFRONT_DOMAINS muss 1-20 eindeutige, kleingeschriebene Domains ohne Leerzeichen enthalten."
+  domain_list_contains "$STAGING_STOREFRONT_DOMAINS" "$STAGING_DOMAIN" || die "STAGING_DOMAIN muss in STAGING_STOREFRONT_DOMAINS enthalten sein."
+  domain_list_contains "$PRODUCTION_STOREFRONT_DOMAINS" "$PRODUCTION_DOMAIN" || die "PRODUCTION_DOMAIN muss in PRODUCTION_STOREFRONT_DOMAINS enthalten sein."
+  IFS=',' read -r -a staging_domains <<< "$STAGING_STOREFRONT_DOMAINS"
+  IFS=',' read -r -a production_domains <<< "$PRODUCTION_STOREFRONT_DOMAINS"
+  for domain in "${staging_domains[@]}"; do
+    for second in "${production_domains[@]}"; do
+      assert_distinct "$domain" "$second" "Staging- und Production-Storefront-Domains müssen vollständig getrennt sein: $domain"
+    done
+  done
   is_valid_host "$STAGING_SERVER_HOST" || die "STAGING_SERVER_HOST ist ungültig."
   is_valid_host "$PRODUCTION_SERVER_HOST" || die "PRODUCTION_SERVER_HOST ist ungültig."
   assert_distinct "$STAGING_DOMAIN" "$PRODUCTION_DOMAIN" "Staging- und Production-Domain müssen verschieden sein."
@@ -128,6 +140,8 @@ validate_server_config() {
   [[ "$EXPECTED_ENVIRONMENT" == "$ENVIRONMENT" ]] || die "Falsche Config: erwartet $EXPECTED_ENVIRONMENT, erhalten $ENVIRONMENT"
   is_valid_slug "$PROJECT_SLUG" || die "PROJECT_SLUG ist ungültig."
   is_valid_domain "$PRIMARY_DOMAIN" || die "PRIMARY_DOMAIN ist ungültig."
+  is_valid_domain_list "$STOREFRONT_DOMAINS" || die "STOREFRONT_DOMAINS muss 1-20 eindeutige, kleingeschriebene Domains ohne Leerzeichen enthalten."
+  domain_list_contains "$STOREFRONT_DOMAINS" "$PRIMARY_DOMAIN" || die "PRIMARY_DOMAIN muss in STOREFRONT_DOMAINS enthalten sein."
   is_valid_email "$ADMIN_EMAIL" || die "ADMIN_EMAIL ist ungültig."
   is_valid_username "$ADMIN_USER" || die "ADMIN_USER ist ungültig."
   is_valid_username "$DEPLOY_USER" || die "DEPLOY_USER ist ungültig."

@@ -112,13 +112,14 @@ chmod 600 "$CUSTOMER_GENERATED_ENV"
 
 write_server_env() {
   local env_name="$1" prefix="$2" domain="$3" app_secret="$4" admin_password="$5" db_root_password="$6" db_password="$7" redis_password="$8" rabbit_password="$9" admin_pub="${10}" gha_pub="${11}" backup_passphrase="${12}"
-  local out="$GENERATED_DIR/${env_name}-server.env" install_dir="$INSTALL_BASE_DIR/$PROJECT_SLUG/$env_name" staging_flag=0 name
+  local out="$GENERATED_DIR/${env_name}-server.env" install_dir="$INSTALL_BASE_DIR/$PROJECT_SLUG/$env_name" staging_flag=0 name storefront_domains_name
   [[ "$env_name" == staging ]] && staging_flag=1
   : > "$out"
   write_kv "$out" ENVIRONMENT "$env_name"
   write_kv "$out" CUSTOMER_NAME "$CUSTOMER_NAME"
   write_kv "$out" PROJECT_SLUG "$PROJECT_SLUG"
   write_kv "$out" PRIMARY_DOMAIN "$domain"
+  storefront_domains_name="${prefix}_STOREFRONT_DOMAINS"; write_kv "$out" STOREFRONT_DOMAINS "${!storefront_domains_name}"
   write_kv "$out" ADMIN_EMAIL "$ADMIN_EMAIL"
   write_kv "$out" TIMEZONE "$TIMEZONE"
   write_kv "$out" ADMIN_USER "$ADMIN_USER"
@@ -175,7 +176,9 @@ vault_kv "$VAULT_FILE" PROJECT_SLUG "$PROJECT_SLUG"
 vault_kv "$VAULT_FILE" GITHUB_REPOSITORY "$GITHUB_OWNER/$GITHUB_REPO"
 vault_kv "$VAULT_FILE" SHOPWARE_VERSION "$SHOPWARE_VERSION"
 vault_kv "$VAULT_FILE" STAGING_URL "https://$STAGING_DOMAIN"
+vault_kv "$VAULT_FILE" STAGING_STOREFRONT_DOMAINS "$STAGING_STOREFRONT_DOMAINS"
 vault_kv "$VAULT_FILE" PRODUCTION_URL "https://$PRODUCTION_DOMAIN"
+vault_kv "$VAULT_FILE" PRODUCTION_STOREFRONT_DOMAINS "$PRODUCTION_STOREFRONT_DOMAINS"
 
 vault_section "$VAULT_FILE" "SSH Private Keys"
 for key in "$SSH_DIR"/*-ed25519; do vault_block "$VAULT_FILE" "$(basename "$key")" "$(<"$key")"; done
