@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: "Type deploy-production after staging approval"
+        description: "Type deploy-production after staging validation"
         required: true
         type: string
 

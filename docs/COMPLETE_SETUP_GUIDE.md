@@ -8,7 +8,7 @@ There are three distinct states:
 
 1. **Template validated**: repository-only tests pass. No infrastructure is trusted yet.
 2. **Ready for staging**: real values validate, S3 probes pass, GitHub protections exist and the exact Shopware image passes CI.
-3. **Ready for production**: staging deployment, encrypted backup, restore verification and application smoke tests have passed; production approval is configured.
+3. **Ready for production**: staging deployment, encrypted backup, restore verification and application smoke tests have passed; production is deployed only through the manual confirmation workflow.
 
 Passing state 1 does not certify external credentials, DNS, S3 policy, a VPS, a built Shopware image or an application that does not yet exist.
 
@@ -40,7 +40,7 @@ developer workstation
           │
           ├── GitHub CI: static tests → Composer audit → image build → Trivy → SBOM
           │       ├── staging environment → forced SSH deploy gate
-          │       └── production environment + required reviewer → forced SSH deploy gate
+          │       └── production environment + manual confirmation → forced SSH deploy gate
           │
           ├── staging VPS: Caddy → Varnish → Shopware app
           │       └── MariaDB + Valkey + RabbitMQ + worker + scheduler
@@ -194,7 +194,7 @@ Then push a review branch and require GitHub CI to build the real project image,
 
 Create protected `staging` and `production` branches. For both branches require pull requests with at least one approval and enforce the rules for administrators. Do not allow direct pushes or force pushes.
 
-Create GitHub environments named exactly `staging` and `production`. Production must have at least one independent required reviewer. Add only the environment-specific SSH values from `generated/customer-vault.md`:
+Create GitHub environments named exactly `staging` and `production`. Add only the environment-specific SSH values from `generated/customer-vault.md`:
 
 ```text
 STAGING_SSH_HOST
@@ -218,7 +218,7 @@ Verify external controls and fresh S3 evidence:
 bash scripts/08-preflight.sh
 ```
 
-Staging deploys on a push to `staging`. Production never deploys on push: manually dispatch `Deploy Production` from the protected `production` branch, type `deploy-production`, and obtain the environment approval.
+Staging deploys on a push to `staging`. Production never deploys on push: manually dispatch `Deploy Production` from the protected `production` branch and type `deploy-production`.
 
 All GitHub Actions are pinned to complete commit SHAs. CI images are labeled `<environment>-<40-character-git-sha>`, but deployment uses only the registry-returned `ghcr.io/...@sha256:<64-hex>` digest. The server verifies that the environment/commit tag currently resolves to the supplied digest, then records the Git SHA as separate provenance. Rolling `latest` tags are convenience references only and are never accepted by the server deploy gate. Staging is triggered only by successful CI for the exact staging commit; production independently verifies a successful CI run for its exact dispatched commit.
 
@@ -361,7 +361,7 @@ This removes local `customer.env`, generated customer/server configs, vault and 
 - S3 probes for both environments pass and their markers match the config hash.
 - Generated secrets are secured in a password manager.
 - Exact Shopware project initialized and all local/CI gates pass.
-- GitHub branches/environments/protection and production reviewer pass external preflight.
+- GitHub branches, environments and branch protection pass external preflight.
 - DNS and fresh VPS ownership are independently confirmed.
 
 ### Go for production
