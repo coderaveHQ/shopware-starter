@@ -21,16 +21,20 @@ def test_docker_and_security_services(host):
 
 
 def test_ssh_is_hardened(host):
-    conf = host.file("/etc/ssh/sshd_config.d/99-shopware-infra.conf")
+    conf = host.file("/etc/ssh/sshd_config.d/00-shopware-infra.conf")
     assert conf.exists
-    for setting in [
-        "PasswordAuthentication no",
-        "PermitRootLogin no",
-        "AllowTcpForwarding no",
-        "AllowAgentForwarding no",
-        "AuthenticationMethods publickey",
-    ]:
-        assert conf.contains(setting)
+    assert conf.mode == 0o600
+    assert conf.user == "root"
+    assert conf.group == "root"
+
+    result = host.run("sudo sshd -T")
+    assert result.rc == 0
+    settings = dict(line.split(None, 1) for line in result.stdout.splitlines() if " " in line)
+    assert settings["passwordauthentication"] == "no"
+    assert settings["permitrootlogin"] == "no"
+    assert settings["allowtcpforwarding"] == "no"
+    assert settings["allowagentforwarding"] == "no"
+    assert settings["authenticationmethods"] == "publickey"
 
 
 def test_firewall_enabled(host):

@@ -81,6 +81,12 @@
   ! grep -q "scp .*server-summary.md" "$script"
 }
 
+@test "SSH hardening loads before Ubuntu cloud defaults" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  grep -q 'sshd_config.d/00-shopware-infra.conf' "$REPO_ROOT/scripts/lib/system.sh"
+  ! grep -q 'cat > /etc/ssh/sshd_config.d/99-shopware-infra.conf' "$REPO_ROOT/scripts/lib/system.sh"
+}
+
 @test "backup quiesces write services before the file and database snapshot" {
   REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
   quiesce_line="$(grep -n '^quiesce_writes$' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"

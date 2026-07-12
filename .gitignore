@@ -38,6 +38,8 @@ dist/
 coverage/
 .phpunit.result.cache
 .phpunit.cache/
+.pytest_cache/
+__pycache__/
 
 # OS/editor
 .DS_Store

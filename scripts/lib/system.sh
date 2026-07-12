@@ -50,7 +50,8 @@ harden_ssh() {
   if [[ "$DRY_RUN" == 1 ]]; then log "[DRY-RUN] SSH härten und Root/Forwarding deaktivieren"; return 0; fi
   if [[ "$TEST_MODE" == 1 ]]; then ok "TEST_MODE: SSH-Hardening übersprungen"; return 0; fi
   mkdir -p /etc/ssh/sshd_config.d
-  cat > /etc/ssh/sshd_config.d/99-shopware-infra.conf <<EOFSSH
+  rm -f /etc/ssh/sshd_config.d/99-shopware-infra.conf
+  cat > /etc/ssh/sshd_config.d/00-shopware-infra.conf <<EOFSSH
 Port $ssh_port
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -66,7 +67,7 @@ ClientAliveInterval 300
 ClientAliveCountMax 2
 AllowUsers $ADMIN_USER $DEPLOY_USER
 EOFSSH
-  chmod 600 /etc/ssh/sshd_config.d/99-shopware-infra.conf
+  chmod 600 /etc/ssh/sshd_config.d/00-shopware-infra.conf
   sshd -t
   if command_exists systemctl; then systemctl reload ssh || systemctl reload sshd; else service ssh reload; fi
   ok "SSH gehärtet: Root aus, nur Public Key, kein Forwarding"
