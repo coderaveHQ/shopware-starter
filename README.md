@@ -51,7 +51,7 @@ This is not a high-availability architecture. A VPS failure causes downtime. Bac
 - The deployment user has no shell path to Docker and accepts only a forced, root-owned deployment command.
 - Deployments accept only an exact `sha256` registry digest, verify that the environment/commit tag resolves to that digest, and record the corresponding 40-character Git commit SHA separately.
 - Staging deployment starts only after successful CI for the exact staging commit. Production deployment is manual, verifies successful CI for the exact commit and requires typed confirmation.
-- Composer advisories, secret scanning and HIGH/CRITICAL container findings block CI before an image is published or deployed.
+- Composer advisories, secret scanning and fixable HIGH/CRITICAL container findings block CI before an image is published or deployed; all unfixed HIGH/CRITICAL findings remain visible in an archived report.
 - Existing databases receive an encrypted offsite backup before deployment. Database migrations are never automatically reversed.
 - Backup and restore-verification timers have separate monitoring endpoints.
 

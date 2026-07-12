@@ -241,7 +241,7 @@ process_environment() {
   assert_no_bucket_access "$endpoint" "$region" "$public_bucket" "$backup_access" "$backup_secret" "$label backup writer credential"
   assert_no_bucket_access "$endpoint" "$region" "$private_bucket" "$backup_access" "$backup_secret" "$label backup writer credential"
 
-  printf 'environment=%s\nconfig_sha256=%s\nverified=%s\n' "$label" "$(customer_config_sha256)" "$(date -Iseconds)" > "$REPO_ROOT/generated/s3-${marker_name}.verified"
+  printf 'environment=%s\nconfig_sha256=%s\nverified=%s\n' "$label" "$(s3_config_sha256)" "$(date -Iseconds)" > "$REPO_ROOT/generated/s3-${marker_name}.verified"
   chmod 600 "$REPO_ROOT/generated/s3-${marker_name}.verified"
   ok "$label S3-Isolation, Verschlüsselung, Versionierung, Policies und Zugriff verifiziert"
 }

@@ -182,7 +182,7 @@ For each environment it:
 8. Proves the backup writer can list/read/write/delete only the backup bucket.
 9. Proves role boundaries and, with `--target all`, bidirectional staging/production isolation.
 10. Removes all versions and delete markers created by the probes.
-11. Writes a config-hash-bound `generated/s3-<environment>.verified` marker.
+11. Writes an S3-config-hash-bound `generated/s3-<environment>.verified` marker.
 
 Use a dedicated backup bucket: the lifecycle operation intentionally owns its lifecycle configuration. A config change invalidates the marker and blocks external preflight until the probes are rerun. After both markers exist, deactivate the owner key at IONOS; re-enable or rotate it only for a reviewed bucket-policy/configuration change.
 
@@ -207,7 +207,7 @@ bash scripts/07-run-tests.sh --docker
 bash scripts/10-check-image-pins.sh
 ```
 
-Then push a review branch and require GitHub CI to build the real project image, fail on HIGH/CRITICAL findings (including unfixed findings), generate an SBOM and pass `composer audit --locked`.
+Then push a review branch and require GitHub CI to build the real project image, fail on fixable HIGH/CRITICAL findings, archive a complete report including unfixed findings, generate an SBOM and pass `composer audit --locked`.
 
 ## 9. GitHub controls
 

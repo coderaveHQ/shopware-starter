@@ -40,7 +40,7 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Validate locked dependencies
         run: |
-          composer validate --strict
+          composer validate --no-check-publish
           composer audit --locked --no-interaction
           bash scripts/08-preflight.sh --local-only
       - name: Login to GHCR
@@ -71,7 +71,7 @@ jobs:
           version: v0.65.0
           format: table
           severity: HIGH,CRITICAL
-          ignore-unfixed: false
+          ignore-unfixed: true
           exit-code: "1"
       - name: Publish scanned image
         id: publish

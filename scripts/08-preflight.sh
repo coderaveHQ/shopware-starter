@@ -44,6 +44,10 @@ grep -Fq 'workflow_run:' "$REPO_ROOT/templates/github/deploy-staging.yml.tpl" ||
 grep -Fq 'Require successful CI for this exact commit' "$REPO_ROOT/templates/github/deploy-production.yml.tpl" || die "Production-Deployment prüft CI nicht commitgenau."
 grep -Fq 'check_server_resources' "$REPO_ROOT/scripts/lib/server-common.sh" || die "Fresh-VPS-Ressourcenprüfung fehlt."
 grep -Fq -- '--ignore-platform-req=ext-amqp' "$REPO_ROOT/scripts/05-setup-repo.sh" || die "Lokales Composer-Bootstrap berücksichtigt das ausschließlich im Zielimage vorhandene ext-amqp nicht."
+! rg -n 'composer validate --strict' "$REPO_ROOT/templates/github" "$REPO_ROOT/.github/workflows" >/dev/null || die "GitHub CI behandelt das Shopware-Anwendungsprojekt fälschlich als publizierbares Composer-Paket."
+grep -Fq 'shopware-vulnerabilities.json' "$REPO_ROOT/templates/github/ci.yml.tpl" || die "Vollständiger Trivy-Befundbericht fehlt."
+grep -Fq 'Fail on fixable high or critical image vulnerabilities' "$REPO_ROOT/templates/github/ci.yml.tpl" || die "Trivy blockiert nicht gezielt behebbaren HIGH/CRITICAL-Befunde."
+! rg -n 'ignore-unfixed: false' "$REPO_ROOT/templates/github/deploy-"*.yml.tpl >/dev/null || die "Deployment würde an nicht behebbaren Image-Befunden blockieren."
 grep -Fq 'Netzwerktransfer erfordert --run' "$REPO_ROOT/scripts/06-deploy-setup-files.sh" || die "Setup-Transfer kann ohne explizites --run Secrets hinterlassen."
 
 if [[ -f "$REPO_ROOT/generated/customer.env" ]]; then
@@ -55,16 +59,21 @@ fi
 if [[ -f "$REPO_ROOT/Dockerfile" ]]; then
   grep -Eq '^FROM .+@sha256:[a-f0-9]{64}' "$REPO_ROOT/Dockerfile" || die "Generiertes Dockerfile ist nicht digest-gepinnt."
   grep -Fq 'test ! -e /src/generated' "$REPO_ROOT/Dockerfile" || die "Dockerfile Build-Kontext-Guard fehlt."
+  ! grep -Fq 'id=packages_token,env=' "$REPO_ROOT/Dockerfile" || die "Dockerfile verwendet ein vom gepinnten Frontend nicht unterstütztes Secret-env-Mount."
+  grep -Fq 'SHOPWARE_CACHE_ID=docker' "$REPO_ROOT/Dockerfile" || die "Shopware Build-Cache-Isolation fehlt."
+  grep -Fq 'mv config/packages/filesystem-s3.yaml /tmp/filesystem-s3.yaml' "$REPO_ROOT/Dockerfile" || die "Image-Build ist nicht vom Runtime-S3 getrennt."
+  grep -Fq 'mv /tmp/filesystem-s3.yaml config/packages/filesystem-s3.yaml' "$REPO_ROOT/Dockerfile" || die "Runtime-S3-Konfiguration wird nach dem Build nicht wiederhergestellt."
+  grep -Fq 'SHOPWARE_DISABLE_UPDATE_CHECK=1' "$REPO_ROOT/Dockerfile" || die "Shopware Update-Check ist im finalen Image nicht deaktiviert."
 fi
 
 if [[ "$LOCAL_ONLY" == 1 ]]; then ok "Lokale Preflight-Invarianten erfüllt"; exit 0; fi
 
 step "Externe S3- und GitHub-Sicherheitskontrollen prüfen"
-config_hash="$(customer_config_sha256)"
+config_hash="$(s3_config_sha256)"
 for env_name in staging production; do
   marker="$REPO_ROOT/generated/s3-$env_name.verified"
   assert_private_file "$marker"
-  [[ "$(awk -F= '$1=="config_sha256" {print $2}' "$marker")" == "$config_hash" ]] || die "S3-Verifikation ist nach einer Konfigurationsänderung veraltet: $env_name"
+  [[ "$(awk -F= '$1=="config_sha256" {print $2}' "$marker")" == "$config_hash" ]] || die "S3-Verifikation ist nach einer S3-Konfigurationsänderung veraltet: $env_name"
 done
 require_command gh; require_command jq
 gh auth status >/dev/null

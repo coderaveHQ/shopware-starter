@@ -45,7 +45,7 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 dir /repo --no-banner --redact
       - name: Composer metadata and advisories
         run: |
-          composer validate --strict
+          composer validate --no-check-publish
           composer audit --locked --no-interaction
 
   server-script-simulation:
@@ -77,14 +77,24 @@ jobs:
           secrets: |
             packages_token=${{ secrets.SHOPWARE_PACKAGES_TOKEN }}
             composer_auth=${{ secrets.COMPOSER_AUTH_JSON }}
-      - name: Fail on high or critical image vulnerabilities
+      - name: Record all high and critical image vulnerabilities
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
+        with:
+          image-ref: local/shopware:${{ github.sha }}
+          version: v0.65.0
+          format: json
+          output: shopware-vulnerabilities.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+      - name: Fail on fixable high or critical image vulnerabilities
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
         with:
           image-ref: local/shopware:${{ github.sha }}
           version: v0.65.0
           format: table
           severity: HIGH,CRITICAL
-          ignore-unfixed: false
+          ignore-unfixed: true
           exit-code: "1"
       - name: Generate CycloneDX SBOM
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
@@ -97,5 +107,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: shopware-sbom-${{ github.sha }}
-          path: shopware-sbom.cdx.json
+          path: |
+            shopware-sbom.cdx.json
+            shopware-vulnerabilities.json
           retention-days: 30
