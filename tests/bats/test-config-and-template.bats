@@ -79,6 +79,17 @@ teardown() { rm -rf "$TEST_TMPDIR"; }
   [ "$output" = "example-customer-gmbh-co-kg" ]
 }
 
+@test "expand_home_path expands only the current user's tilde prefix" {
+  HOME="$TEST_TMPDIR/home"
+  run expand_home_path "~/.ssh/id_ed25519"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/.ssh/id_ed25519" ]
+
+  run expand_home_path "/tmp/id_ed25519"
+  [ "$status" -eq 0 ]
+  [ "$output" = "/tmp/id_ed25519" ]
+}
+
 @test "render_template applies explicit filters and preserves GitHub expressions" {
   printf 'raw={{NAME}} dotenv={{VALUE|dotenv}} yaml={{VALUE|yaml}} keep=${{ github.sha }}\n' > "$TEST_TMPDIR/input.tpl"
   export NAME="Shopware" VALUE="safe-value"

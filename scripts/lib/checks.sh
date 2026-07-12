@@ -12,6 +12,15 @@ require_command() {
 require_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Dieses Skript muss als root ausgeführt werden."; }
 require_not_root() { [[ "${EUID:-$(id -u)}" -ne 0 ]] || die "Dieses Skript soll lokal als normaler Benutzer laufen, nicht als root."; }
 
+expand_home_path() {
+  local value="$1"
+  case "$value" in
+    \~) printf '%s' "$HOME" ;;
+    \~/*) printf '%s/%s' "$HOME" "${value:2}" ;;
+    *) printf '%s' "$value" ;;
+  esac
+}
+
 assert_not_empty() {
   local name="$1" value="${!1:-}"
   [[ -n "$value" ]] || die "Pflichtvariable fehlt oder ist leer: $name"

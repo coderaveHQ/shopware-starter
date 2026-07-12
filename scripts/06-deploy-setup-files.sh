@@ -28,8 +28,6 @@ else
   SHOPWARE_INFRA_TOTAL=4
 fi
 
-expand_path() { local value="$1"; [[ "$value" == ~* ]] && printf '%s%s' "$HOME" "${value#~}" || printf '%s' "$value"; }
-
 verify_host_key() {
   local host="$1" port="$2" expected="$3" destination="$4" scan fingerprint
   scan="$(mktemp)"; chmod 600 "$scan"
@@ -70,8 +68,8 @@ deploy_one() {
   local env_name="$1" prefix host scp_host root_user root_port root_key fingerprint env_file setup_script s3_marker initial_known admin_key final_known summary_tmp vault known_hosts_value
   prefix="$(printf '%s' "$env_name" | tr '[:lower:]' '[:upper:]')"
   case "$env_name" in
-    staging) host="$STAGING_SERVER_HOST"; root_user="$STAGING_ROOT_SSH_USER"; root_port="$STAGING_ROOT_SSH_PORT"; root_key="$(expand_path "$STAGING_ROOT_SSH_KEY_PATH")"; fingerprint="$STAGING_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/staging-server.env"; setup_script="scripts/01-setup-staging-server.sh"; admin_key="$REPO_ROOT/generated/ssh/staging-admin-ed25519" ;;
-    production) host="$PRODUCTION_SERVER_HOST"; root_user="$PRODUCTION_ROOT_SSH_USER"; root_port="$PRODUCTION_ROOT_SSH_PORT"; root_key="$(expand_path "$PRODUCTION_ROOT_SSH_KEY_PATH")"; fingerprint="$PRODUCTION_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/production-server.env"; setup_script="scripts/02-setup-production-server.sh"; admin_key="$REPO_ROOT/generated/ssh/production-admin-ed25519" ;;
+    staging) host="$STAGING_SERVER_HOST"; root_user="$STAGING_ROOT_SSH_USER"; root_port="$STAGING_ROOT_SSH_PORT"; root_key="$(expand_home_path "$STAGING_ROOT_SSH_KEY_PATH")"; fingerprint="$STAGING_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/staging-server.env"; setup_script="scripts/01-setup-staging-server.sh"; admin_key="$REPO_ROOT/generated/ssh/staging-admin-ed25519" ;;
+    production) host="$PRODUCTION_SERVER_HOST"; root_user="$PRODUCTION_ROOT_SSH_USER"; root_port="$PRODUCTION_ROOT_SSH_PORT"; root_key="$(expand_home_path "$PRODUCTION_ROOT_SSH_KEY_PATH")"; fingerprint="$PRODUCTION_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/production-server.env"; setup_script="scripts/02-setup-production-server.sh"; admin_key="$REPO_ROOT/generated/ssh/production-admin-ed25519" ;;
     *) die "Ungültiges Target: $env_name" ;;
   esac
   scp_host="$host"; [[ "$scp_host" == *:* ]] && scp_host="[$scp_host]"
