@@ -77,7 +77,7 @@ deploy_one() {
   scp_host="$host"; [[ "$scp_host" == *:* ]] && scp_host="[$scp_host]"
   s3_marker="$REPO_ROOT/generated/s3-$env_name.verified"
   assert_private_file "$s3_marker"
-  [[ "$(awk -F= '$1=="config_sha256" {print $2}' "$s3_marker")" == "$(file_sha256 "$CONFIG_FILE")" ]] || die "$env_name S3-Verifikation fehlt oder ist nach einer Konfigurationsänderung veraltet."
+  [[ "$(awk -F= '$1=="config_sha256" {print $2}' "$s3_marker")" == "$(customer_config_sha256)" ]] || die "$env_name S3-Verifikation fehlt oder ist nach einer Konfigurationsänderung veraltet."
   for file in "$root_key" "$admin_key" "$env_file" "$REPO_ROOT/$setup_script"; do assert_file_exists "$file"; done
   assert_private_file "$root_key"
   assert_private_file "$admin_key"

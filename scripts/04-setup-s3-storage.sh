@@ -81,7 +81,7 @@ purge_probe_versions() {
     while IFS= read -r version_id; do
       [[ -n "$version_id" && "$version_id" != None ]] || continue
       aws --endpoint-url "$endpoint" s3api delete-object --bucket "$bucket" --key "$key" --version-id "$version_id" >/dev/null || return 1
-    done < <(printf '%s' "$version_ids" | tr '\t' '\n')
+    done < <(printf '%s\n' "$version_ids" | tr '\t' '\n')
     version_ids="$(aws --endpoint-url "$endpoint" s3api list-object-versions --bucket "$bucket" --prefix "$key" --query "${kind}[?Key=='$key'].VersionId" --output text)" || return 1
     [[ -z "$version_ids" || "$version_ids" == None ]] || return 1
   done
@@ -169,9 +169,12 @@ probe_runtime_storage() {
   set_aws_credentials "$access" "$secret" "$region"
   aws --endpoint-url "$endpoint" s3api delete-object --bucket "$public_bucket" --key "$public_probe" >/dev/null
   aws --endpoint-url "$endpoint" s3api delete-object --bucket "$private_bucket" --key "$private_probe" >/dev/null
-  purge_probe_versions "$endpoint" "$region" "$public_bucket" "$public_probe"; PROBE_BUCKETS[public_index]=""
-  purge_probe_versions "$endpoint" "$region" "$private_bucket" "$private_probe"; PROBE_BUCKETS[private_index]=""
-  purge_probe_versions "$endpoint" "$region" "$private_bucket" "$reader_write_probe"; PROBE_BUCKETS[reader_write_index]=""
+  purge_probe_versions "$endpoint" "$region" "$public_bucket" "$public_probe" || die "Public-Probe-Versionen konnten nicht vollständig gelöscht werden."
+  PROBE_BUCKETS[public_index]=""
+  purge_probe_versions "$endpoint" "$region" "$private_bucket" "$private_probe" || die "Private-Probe-Versionen konnten nicht vollständig gelöscht werden."
+  PROBE_BUCKETS[private_index]=""
+  purge_probe_versions "$endpoint" "$region" "$private_bucket" "$reader_write_probe" || die "Reader-Schreibprobe konnte nicht vollständig gelöscht werden."
+  PROBE_BUCKETS[reader_write_index]=""
 }
 
 probe_backup_storage() {
@@ -188,7 +191,8 @@ probe_backup_storage() {
   anonymous_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${endpoint%/}/$bucket/$key")"
   [[ "$anonymous_status" != 200 ]] || die "Backup bucket object is anonymously readable."
   aws --endpoint-url "$endpoint" s3api delete-object --bucket "$bucket" --key "$key" >/dev/null
-  purge_probe_versions "$endpoint" "$region" "$bucket" "$key"; PROBE_BUCKETS[probe_index]=""
+  purge_probe_versions "$endpoint" "$region" "$bucket" "$key" || die "Backup-Probe-Versionen konnten nicht vollständig gelöscht werden."
+  PROBE_BUCKETS[probe_index]=""
 }
 
 assert_no_bucket_access() {
@@ -204,7 +208,8 @@ assert_no_bucket_access() {
   if aws --endpoint-url "$endpoint" s3api get-object --bucket "$bucket" --key "$key" "$tmp.read" >/dev/null 2>&1; then die "$label can read the isolated bucket."; fi
   if aws --endpoint-url "$endpoint" s3api put-object --bucket "$bucket" --key "$key" --body "$tmp" >/dev/null 2>&1; then die "$label can write the isolated bucket."; fi
   if aws --endpoint-url "$endpoint" s3api delete-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then die "$label can delete from the isolated bucket."; fi
-  purge_probe_versions "$endpoint" "$region" "$bucket" "$key"; PROBE_BUCKETS[probe_index]=""
+  purge_probe_versions "$endpoint" "$region" "$bucket" "$key" || die "Cross-Boundary-Probe konnte nicht vollständig gelöscht werden."
+  PROBE_BUCKETS[probe_index]=""
 }
 
 process_environment() {
@@ -236,7 +241,7 @@ process_environment() {
   assert_no_bucket_access "$endpoint" "$region" "$public_bucket" "$backup_access" "$backup_secret" "$label backup writer credential"
   assert_no_bucket_access "$endpoint" "$region" "$private_bucket" "$backup_access" "$backup_secret" "$label backup writer credential"
 
-  printf 'environment=%s\nconfig_sha256=%s\nverified=%s\n' "$label" "$(file_sha256 "$CONFIG_FILE")" "$(date -Iseconds)" > "$REPO_ROOT/generated/s3-${marker_name}.verified"
+  printf 'environment=%s\nconfig_sha256=%s\nverified=%s\n' "$label" "$(customer_config_sha256)" "$(date -Iseconds)" > "$REPO_ROOT/generated/s3-${marker_name}.verified"
   chmod 600 "$REPO_ROOT/generated/s3-${marker_name}.verified"
   ok "$label S3-Isolation, Verschlüsselung, Versionierung, Policies und Zugriff verifiziert"
 }

@@ -59,7 +59,7 @@ fi
 if [[ "$LOCAL_ONLY" == 1 ]]; then ok "Lokale Preflight-Invarianten erfüllt"; exit 0; fi
 
 step "Externe S3- und GitHub-Sicherheitskontrollen prüfen"
-config_hash="$(file_sha256 "$REPO_ROOT/generated/customer.env")"
+config_hash="$(customer_config_sha256)"
 for env_name in staging production; do
   marker="$REPO_ROOT/generated/s3-$env_name.verified"
   assert_private_file "$marker"

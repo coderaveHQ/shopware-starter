@@ -115,6 +115,15 @@ write_kv() {
   printf '%s="%s"\n' "$key" "$value" >> "$file"
 }
 
+customer_config_sha256() {
+  local key
+  {
+    for key in "${CUSTOMER_CONFIG_KEYS[@]}"; do
+      printf '%s\0%s\0' "$key" "${!key-}"
+    done
+  } | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+}
+
 normalize_slug() {
   local value="$1"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"

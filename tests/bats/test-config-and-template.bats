@@ -16,6 +16,17 @@ setup() {
   ! is_valid_contract_user_id "31000000:NOT-A-UUID"
 }
 
+@test "customer config hash ignores generated-only values" {
+  load_env_file "$REPO_ROOT/tests/fixtures/customer.env" "${CUSTOMER_CONFIG_KEYS[@]}"
+  source_hash="$(customer_config_sha256)"
+  GHCR_IMAGE="ghcr.io/example/customer/shopware"
+  generated="$TEST_TMPDIR/generated-customer.env"
+  for key in "${CUSTOMER_CONFIG_KEYS[@]}"; do write_kv "$generated" "$key" "${!key-}"; done
+  write_kv "$generated" GHCR_IMAGE "$GHCR_IMAGE"
+  load_env_file "$generated" "${GENERATED_CUSTOMER_CONFIG_KEYS[@]}"
+  [ "$(customer_config_sha256)" = "$source_hash" ]
+}
+
 @test "runtime bucket policy separates runtime reader and public access" {
   policy="$TEST_TMPDIR/runtime-policy.json"
   render_runtime_bucket_policy "$policy" "customer-staging-public" \
