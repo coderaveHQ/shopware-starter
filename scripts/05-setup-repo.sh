@@ -47,7 +47,9 @@ step "Exaktes Shopware Production Template erzeugen"
 composer create-project "shopware/production:$SHOPWARE_VERSION" "$TMP_DIR" --no-interaction
 
 step "Offizielle Hosting-Pakete installieren"
-(cd "$TMP_DIR" && composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction)
+# The pinned Shopware CLI and production images provide ext-amqp. The local
+# bootstrap PHP may not, so only this local dependency-resolution check ignores it.
+(cd "$TMP_DIR" && composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction --ignore-platform-req=ext-amqp)
 actual_shopware_version="$(cd "$TMP_DIR" && composer show shopware/core --locked --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["versions"][0].removeprefix("* ").lstrip("v"))')"
 [[ "$actual_shopware_version" == "$SHOPWARE_VERSION" ]] || die "Composer hat unerwartet Shopware $actual_shopware_version statt $SHOPWARE_VERSION aufgelöst."
 

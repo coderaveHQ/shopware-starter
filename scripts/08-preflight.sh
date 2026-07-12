@@ -43,6 +43,7 @@ grep -Fq 'EXPECTED_ENVIRONMENT_TAG=' "$REPO_ROOT/templates/server/deploy-wrapper
 grep -Fq 'workflow_run:' "$REPO_ROOT/templates/github/deploy-staging.yml.tpl" || die "Staging-Deployment wartet nicht auf CI."
 grep -Fq 'Require successful CI for this exact commit' "$REPO_ROOT/templates/github/deploy-production.yml.tpl" || die "Production-Deployment prüft CI nicht commitgenau."
 grep -Fq 'check_server_resources' "$REPO_ROOT/scripts/lib/server-common.sh" || die "Fresh-VPS-Ressourcenprüfung fehlt."
+grep -Fq -- '--ignore-platform-req=ext-amqp' "$REPO_ROOT/scripts/05-setup-repo.sh" || die "Lokales Composer-Bootstrap berücksichtigt das ausschließlich im Zielimage vorhandene ext-amqp nicht."
 grep -Fq 'Netzwerktransfer erfordert --run' "$REPO_ROOT/scripts/06-deploy-setup-files.sh" || die "Setup-Transfer kann ohne explizites --run Secrets hinterlassen."
 
 if [[ -f "$REPO_ROOT/generated/customer.env" ]]; then
