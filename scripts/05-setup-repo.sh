@@ -22,7 +22,12 @@ while [[ $# -gt 0 ]]; do
     *) args+=("$1"); shift ;;
   esac
 done
-if ! parse_common_args "${args[@]}"; then usage; exit 0; fi
+if [[ "${#args[@]}" -eq 0 ]]; then
+  if ! parse_common_args; then usage; exit 0; fi
+elif ! parse_common_args "${args[@]}"; then
+  usage
+  exit 0
+fi
 [[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"
 if [[ "$DRY_RUN" == 1 ]]; then SHOPWARE_INFRA_TOTAL=3; else SHOPWARE_INFRA_TOTAL=13; fi
 MARKER="$REPO_ROOT/.shopware-initialized-by-template"
