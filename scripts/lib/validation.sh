@@ -180,6 +180,7 @@ validate_server_config() {
   [[ "$INSTALL_ADMIN_USERNAME" =~ ^[A-Za-z0-9_.@-]{3,64}$ ]] || die "INSTALL_ADMIN_USERNAME ist ungültig."
   case "$SHOPWARE_USAGE_DATA_CONSENT" in accepted|revoked) ;; *) die "SHOPWARE_USAGE_DATA_CONSENT ist ungültig." ;; esac
   [[ "$APP_SECRET" =~ ^[a-f0-9]{64}$ ]] || die "APP_SECRET muss ein 64-stelliges Hex-Secret sein."
+  [[ "$INSTANCE_ID" =~ ^[a-f0-9]{32}$ ]] || die "INSTANCE_ID muss eine 32-stellige Hex-ID sein."
   for name in INSTALL_ADMIN_PASSWORD DB_ROOT_PASSWORD DB_PASSWORD REDIS_PASSWORD RABBITMQ_PASSWORD BACKUP_ENCRYPTION_PASSPHRASE; do is_valid_alnum_secret "${!name}" || die "$name muss ein generiertes alphanumerisches Secret sein."; done
   [[ "$DB_NAME" == shopware && "$DB_USER" == shopware && "$RABBITMQ_USER" == shopware ]] || die "DB- und RabbitMQ-Namen weichen vom gehärteten Template ab."
   case "$ENVIRONMENT:$SHOPWARE_DEPLOYMENT_STAGING" in staging:1|production:0) ;; *) die "SHOPWARE_DEPLOYMENT_STAGING ist für $ENVIRONMENT falsch." ;; esac

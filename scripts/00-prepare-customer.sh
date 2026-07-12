@@ -96,6 +96,7 @@ PRODUCTION_GITHUB_ACTIONS_PUBLIC_KEY="$(<"$SSH_DIR/production-github-actions-ed2
 
 step "Getrennte Anwendungs- und Backup-Secrets erzeugen"
 APP_SECRET_STAGING="$(generate_hex_secret 32)"; APP_SECRET_PRODUCTION="$(generate_hex_secret 32)"
+INSTANCE_ID_STAGING="$(generate_hex_secret 16)"; INSTANCE_ID_PRODUCTION="$(generate_hex_secret 16)"
 INSTALL_ADMIN_PASSWORD_STAGING="$(generate_password 32)"; INSTALL_ADMIN_PASSWORD_PRODUCTION="$(generate_password 32)"
 DB_ROOT_PASSWORD_STAGING="$(generate_password 48)"; DB_PASSWORD_STAGING="$(generate_password 48)"
 DB_ROOT_PASSWORD_PRODUCTION="$(generate_password 48)"; DB_PASSWORD_PRODUCTION="$(generate_password 48)"
@@ -111,7 +112,7 @@ write_kv "$CUSTOMER_GENERATED_ENV" GHCR_IMAGE "$GHCR_IMAGE"
 chmod 600 "$CUSTOMER_GENERATED_ENV"
 
 write_server_env() {
-  local env_name="$1" prefix="$2" domain="$3" app_secret="$4" admin_password="$5" db_root_password="$6" db_password="$7" redis_password="$8" rabbit_password="$9" admin_pub="${10}" gha_pub="${11}" backup_passphrase="${12}"
+  local env_name="$1" prefix="$2" domain="$3" app_secret="$4" admin_password="$5" db_root_password="$6" db_password="$7" redis_password="$8" rabbit_password="$9" admin_pub="${10}" gha_pub="${11}" backup_passphrase="${12}" instance_id="${13}"
   local out="$GENERATED_DIR/${env_name}-server.env" install_dir="$INSTALL_BASE_DIR/$PROJECT_SLUG/$env_name" staging_flag=0 name storefront_domains_name
   [[ "$env_name" == staging ]] && staging_flag=1
   : > "$out"
@@ -140,6 +141,7 @@ write_server_env() {
   write_kv "$out" APP_ENV prod
   write_kv "$out" APP_URL "https://$domain"
   write_kv "$out" APP_SECRET "$app_secret"
+  write_kv "$out" INSTANCE_ID "$instance_id"
   write_kv "$out" INSTALL_LOCALE "$INSTALL_LOCALE"
   write_kv "$out" INSTALL_CURRENCY "$INSTALL_CURRENCY"
   write_kv "$out" INSTALL_ADMIN_USERNAME "$INSTALL_ADMIN_USERNAME"
@@ -165,8 +167,8 @@ write_server_env() {
 }
 
 step "Strikt getrennte Server-Konfigurationen schreiben"
-write_server_env staging STAGING "$STAGING_DOMAIN" "$APP_SECRET_STAGING" "$INSTALL_ADMIN_PASSWORD_STAGING" "$DB_ROOT_PASSWORD_STAGING" "$DB_PASSWORD_STAGING" "$REDIS_PASSWORD_STAGING" "$RABBITMQ_PASSWORD_STAGING" "$STAGING_ADMIN_PUBLIC_KEY" "$STAGING_GITHUB_ACTIONS_PUBLIC_KEY" "$BACKUP_ENCRYPTION_PASSPHRASE_STAGING"
-write_server_env production PRODUCTION "$PRODUCTION_DOMAIN" "$APP_SECRET_PRODUCTION" "$INSTALL_ADMIN_PASSWORD_PRODUCTION" "$DB_ROOT_PASSWORD_PRODUCTION" "$DB_PASSWORD_PRODUCTION" "$REDIS_PASSWORD_PRODUCTION" "$RABBITMQ_PASSWORD_PRODUCTION" "$PRODUCTION_ADMIN_PUBLIC_KEY" "$PRODUCTION_GITHUB_ACTIONS_PUBLIC_KEY" "$BACKUP_ENCRYPTION_PASSPHRASE_PRODUCTION"
+write_server_env staging STAGING "$STAGING_DOMAIN" "$APP_SECRET_STAGING" "$INSTALL_ADMIN_PASSWORD_STAGING" "$DB_ROOT_PASSWORD_STAGING" "$DB_PASSWORD_STAGING" "$REDIS_PASSWORD_STAGING" "$RABBITMQ_PASSWORD_STAGING" "$STAGING_ADMIN_PUBLIC_KEY" "$STAGING_GITHUB_ACTIONS_PUBLIC_KEY" "$BACKUP_ENCRYPTION_PASSPHRASE_STAGING" "$INSTANCE_ID_STAGING"
+write_server_env production PRODUCTION "$PRODUCTION_DOMAIN" "$APP_SECRET_PRODUCTION" "$INSTALL_ADMIN_PASSWORD_PRODUCTION" "$DB_ROOT_PASSWORD_PRODUCTION" "$DB_PASSWORD_PRODUCTION" "$REDIS_PASSWORD_PRODUCTION" "$RABBITMQ_PASSWORD_PRODUCTION" "$PRODUCTION_ADMIN_PUBLIC_KEY" "$PRODUCTION_GITHUB_ACTIONS_PUBLIC_KEY" "$BACKUP_ENCRYPTION_PASSPHRASE_PRODUCTION" "$INSTANCE_ID_PRODUCTION"
 
 step "Vault für sofortigen Passwort-Manager-Import schreiben"
 vault_init "$VAULT_FILE"
@@ -187,9 +189,9 @@ vault_kv "$VAULT_FILE" STAGING_SSH_HOST_KEY_SHA256 "$STAGING_SSH_HOST_KEY_SHA256
 vault_kv "$VAULT_FILE" PRODUCTION_SSH_HOST_KEY_SHA256 "$PRODUCTION_SSH_HOST_KEY_SHA256"
 
 vault_section "$VAULT_FILE" "Staging Secrets"
-for pair in "Shopware Admin Password|$INSTALL_ADMIN_PASSWORD_STAGING" "DB Root Password|$DB_ROOT_PASSWORD_STAGING" "DB Password|$DB_PASSWORD_STAGING" "Redis Password|$REDIS_PASSWORD_STAGING" "RabbitMQ Password|$RABBITMQ_PASSWORD_STAGING" "APP_SECRET|$APP_SECRET_STAGING" "Backup Encryption Passphrase|$BACKUP_ENCRYPTION_PASSPHRASE_STAGING"; do vault_kv "$VAULT_FILE" "${pair%%|*}" "${pair#*|}"; done
+for pair in "Shopware Admin Password|$INSTALL_ADMIN_PASSWORD_STAGING" "DB Root Password|$DB_ROOT_PASSWORD_STAGING" "DB Password|$DB_PASSWORD_STAGING" "Redis Password|$REDIS_PASSWORD_STAGING" "RabbitMQ Password|$RABBITMQ_PASSWORD_STAGING" "APP_SECRET|$APP_SECRET_STAGING" "INSTANCE_ID|$INSTANCE_ID_STAGING" "Backup Encryption Passphrase|$BACKUP_ENCRYPTION_PASSPHRASE_STAGING"; do vault_kv "$VAULT_FILE" "${pair%%|*}" "${pair#*|}"; done
 vault_section "$VAULT_FILE" "Production Secrets"
-for pair in "Shopware Admin Password|$INSTALL_ADMIN_PASSWORD_PRODUCTION" "DB Root Password|$DB_ROOT_PASSWORD_PRODUCTION" "DB Password|$DB_PASSWORD_PRODUCTION" "Redis Password|$REDIS_PASSWORD_PRODUCTION" "RabbitMQ Password|$RABBITMQ_PASSWORD_PRODUCTION" "APP_SECRET|$APP_SECRET_PRODUCTION" "Backup Encryption Passphrase|$BACKUP_ENCRYPTION_PASSPHRASE_PRODUCTION"; do vault_kv "$VAULT_FILE" "${pair%%|*}" "${pair#*|}"; done
+for pair in "Shopware Admin Password|$INSTALL_ADMIN_PASSWORD_PRODUCTION" "DB Root Password|$DB_ROOT_PASSWORD_PRODUCTION" "DB Password|$DB_PASSWORD_PRODUCTION" "Redis Password|$REDIS_PASSWORD_PRODUCTION" "RabbitMQ Password|$RABBITMQ_PASSWORD_PRODUCTION" "APP_SECRET|$APP_SECRET_PRODUCTION" "INSTANCE_ID|$INSTANCE_ID_PRODUCTION" "Backup Encryption Passphrase|$BACKUP_ENCRYPTION_PASSPHRASE_PRODUCTION"; do vault_kv "$VAULT_FILE" "${pair%%|*}" "${pair#*|}"; done
 
 vault_section "$VAULT_FILE" "GitHub Environment Secrets"
 vault_kv "$VAULT_FILE" STAGING_SSH_HOST "$STAGING_SERVER_HOST"

@@ -66,6 +66,14 @@ if [[ -f "$REPO_ROOT/Dockerfile" ]]; then
   grep -Fq 'SHOPWARE_DISABLE_UPDATE_CHECK=1' "$REPO_ROOT/Dockerfile" || die "Shopware Update-Check ist im finalen Image nicht deaktiviert."
 fi
 
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  grep -Fxq 'APP_SECRET=runtime-secret-required' "$REPO_ROOT/.env" || die "Commitfähige .env enthält einen APP_SECRET statt des Runtime-Platzhalters."
+  grep -Fxq 'INSTANCE_ID=runtime-instance-id-required' "$REPO_ROOT/.env" || die "Commitfähige .env enthält eine INSTANCE_ID statt des Runtime-Platzhalters."
+fi
+for forbidden in docker/Dockerfile compose.yaml compose.override.yaml .env.dev; do
+  [[ ! -e "$REPO_ROOT/$forbidden" ]] || die "Alternativer ungeprüfter Shopware-Recipe-Pfad ist vorhanden: $forbidden"
+done
+
 if [[ "$LOCAL_ONLY" == 1 ]]; then ok "Lokale Preflight-Invarianten erfüllt"; exit 0; fi
 
 step "Externe S3- und GitHub-Sicherheitskontrollen prüfen"

@@ -8,7 +8,9 @@ FROM shopware-cli AS build
 ADD . /src
 WORKDIR /src
 
-ENV SHOPWARE_CACHE_ID=docker
+ENV SHOPWARE_CACHE_ID=docker \
+    APP_SECRET=build-only-not-a-secret \
+    INSTANCE_ID=00000000000000000000000000000000
 
 # Defense in depth: these paths must already be excluded by .dockerignore.
 RUN test ! -e /src/generated \

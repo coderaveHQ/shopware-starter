@@ -90,6 +90,33 @@ else
   rsync -a --exclude .git --ignore-existing "$TMP_DIR/" "$REPO_ROOT/"
   rm -rf "$TMP_DIR"
 fi
+python3 - "$REPO_ROOT/.env" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+replacements = {
+    "APP_SECRET": "runtime-secret-required",
+    "INSTANCE_ID": "runtime-instance-id-required",
+}
+seen = set()
+lines = []
+for line in path.read_text(encoding="utf-8").splitlines():
+    match = re.match(r"^(APP_SECRET|INSTANCE_ID)=", line)
+    if match:
+        key = match.group(1)
+        line = f"{key}={replacements[key]}"
+        seen.add(key)
+    lines.append(line)
+if seen != replacements.keys():
+    raise SystemExit("Shopware .env lacks APP_SECRET or INSTANCE_ID")
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+ok "Commitfähige .env enthält ausschließlich Runtime-Platzhalter"
+rm -f "$REPO_ROOT/docker/Dockerfile" "$REPO_ROOT/compose.yaml" "$REPO_ROOT/compose.override.yaml" "$REPO_ROOT/.env.dev"
+rmdir "$REPO_ROOT/docker" 2>/dev/null || true
+ok "Ungepinnte alternative Docker- und Compose-Recipe-Pfade entfernt"
 
 step "Gepinntes offizielles Produktions-Image und lokale Integration schreiben"
 export PROJECT_SLUG PHP_VERSION SHOPWARE_DOCKER_BASE_IMAGE SHOPWARE_CLI_IMAGE MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE

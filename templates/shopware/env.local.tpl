@@ -1,5 +1,6 @@
 APP_ENV="dev"
 APP_SECRET="local-development-only"
+INSTANCE_ID="00000000000000000000000000000000"
 APP_URL="http://127.0.0.1:8000"
 SALES_CHANNEL_URL="http://127.0.0.1:8000"
 DATABASE_URL="mysql://shopware:shopware@database:3306/shopware"

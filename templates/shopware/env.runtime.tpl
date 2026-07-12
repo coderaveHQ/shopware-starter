@@ -1,5 +1,6 @@
 APP_ENV={{APP_ENV|dotenv}}
 APP_SECRET={{APP_SECRET|dotenv}}
+INSTANCE_ID={{INSTANCE_ID|dotenv}}
 APP_URL={{APP_URL|dotenv}}
 SALES_CHANNEL_URL={{APP_URL|dotenv}}
 DATABASE_URL={{DATABASE_URL|dotenv}}
