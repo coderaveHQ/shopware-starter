@@ -4,18 +4,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO_ROOT="$(cd "$SC
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/lib/bootstrap.sh"
 CONFIG_FILE="$REPO_ROOT/generated/customer.env"; REMOTE_DIR="/root/shopware-setup"
+FINALIZE=0
 
 usage() { cat <<USAGE
-Usage: bash scripts/06-deploy-setup-files.sh --target staging|production|all [--config generated/customer.env] (--run|--dry-run)
+Usage: bash scripts/06-deploy-setup-files.sh --target staging|production|all [--config generated/customer.env] (--run|--dry-run|--finalize)
 
 The first SSH connection is allowed only when the scanned ED25519 host key
 matches the independently supplied SHA256 fingerprint.
+--finalize resumes only the verified admin-side cleanup after a completed
+server setup. It never reconnects as root or reruns the one-shot setup.
 USAGE
 }
 
-if ! parse_common_args "$@"; then usage; exit 0; fi
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --finalize) FINALIZE=1; shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+if [[ "${#args[@]}" -eq 0 ]]; then
+  if ! parse_common_args; then usage; exit 0; fi
+elif ! parse_common_args "${args[@]}"; then
+  usage
+  exit 0
+fi
 [[ -n "$TARGET" ]] || die "--target staging|production|all fehlt."
 [[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"
+[[ "$FINALIZE" != 1 || ( "$RUN_REMOTE" == 0 && "$DRY_RUN" == 0 ) ]] || die "--finalize darf nicht mit --run oder --dry-run kombiniert werden."
 if [[ "$DRY_RUN" == 1 ]]; then
   SHOPWARE_INFRA_TOTAL=2
 elif [[ "$RUN_REMOTE" == 1 && "$TARGET" == all ]]; then
@@ -62,26 +78,47 @@ if [[ "$DRY_RUN" == 1 ]]; then
   ok "Transfer-Dry-run ohne Netzwerkzugriff oder Dateimutation abgeschlossen"
   exit 0
 fi
-[[ "$RUN_REMOTE" == 1 ]] || die "Netzwerktransfer erfordert --run. Für eine Vorschau ausschließlich --dry-run verwenden."
-
-deploy_one() {
-  local env_name="$1" prefix host scp_host root_user root_port root_key fingerprint env_file setup_script s3_marker initial_known admin_key final_known summary_tmp vault known_hosts_value
+finalize_one() {
+  local env_name="$1" prefix host fingerprint admin_key final_known summary_tmp vault known_hosts_value
   prefix="$(printf '%s' "$env_name" | tr '[:lower:]' '[:upper:]')"
   case "$env_name" in
-    staging) host="$STAGING_SERVER_HOST"; root_user="$STAGING_ROOT_SSH_USER"; root_port="$STAGING_ROOT_SSH_PORT"; root_key="$(expand_home_path "$STAGING_ROOT_SSH_KEY_PATH")"; fingerprint="$STAGING_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/staging-server.env"; setup_script="scripts/01-setup-staging-server.sh"; admin_key="$REPO_ROOT/generated/ssh/staging-admin-ed25519" ;;
-    production) host="$PRODUCTION_SERVER_HOST"; root_user="$PRODUCTION_ROOT_SSH_USER"; root_port="$PRODUCTION_ROOT_SSH_PORT"; root_key="$(expand_home_path "$PRODUCTION_ROOT_SSH_KEY_PATH")"; fingerprint="$PRODUCTION_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/production-server.env"; setup_script="scripts/02-setup-production-server.sh"; admin_key="$REPO_ROOT/generated/ssh/production-admin-ed25519" ;;
+    staging) host="$STAGING_SERVER_HOST"; fingerprint="$STAGING_SSH_HOST_KEY_SHA256"; admin_key="$REPO_ROOT/generated/ssh/staging-admin-ed25519" ;;
+    production) host="$PRODUCTION_SERVER_HOST"; fingerprint="$PRODUCTION_SSH_HOST_KEY_SHA256"; admin_key="$REPO_ROOT/generated/ssh/production-admin-ed25519" ;;
+    *) die "Ungültiges Target: $env_name" ;;
+  esac
+  assert_private_file "$admin_key"
+  final_known="$REPO_ROOT/generated/known-hosts/${env_name}-deploy"
+
+  step "$env_name: Gehärteten Admin-Zugang verifizieren"
+  verify_host_key "$host" "$SSH_PORT" "$fingerprint" "$final_known"
+  run_remote_command "$host" "$SSH_PORT" "$ADMIN_USER" "$admin_key" "$final_known" "sudo test -f '$REMOTE_DIR/${env_name}-server-summary.md'"
+  summary_tmp="$REPO_ROOT/generated/server-summaries/${env_name}-server-summary.md"
+  (umask 077; run_remote_command "$host" "$SSH_PORT" "$ADMIN_USER" "$admin_key" "$final_known" "sudo cat '$REMOTE_DIR/${env_name}-server-summary.md'" > "$summary_tmp")
+  assert_private_file "$summary_tmp"
+  grep -Fqx "# Server Summary: $PROJECT_SLUG / $env_name" "$summary_tmp" || die "$env_name Server-Summary gehört nicht zum erwarteten Projekt."
+
+  step "$env_name: GitHub Known Host speichern und Setup-Secrets entfernen"
+  known_hosts_value="$(<"$final_known")"; vault="$REPO_ROOT/generated/customer-vault.md"
+  if [[ -f "$vault" ]]; then vault_section "$vault" "$env_name verified deploy access"; vault_block "$vault" "${prefix}_SSH_KNOWN_HOSTS" "$known_hosts_value"; vault_append_file "$vault" "$env_name Server Summary" "$summary_tmp"; fi
+  run_remote_command "$host" "$SSH_PORT" "$ADMIN_USER" "$admin_key" "$final_known" "sudo find '$REMOTE_DIR' -type f -exec shred -u {} + 2>/dev/null || true; sudo rm -rf '$REMOTE_DIR'"
+  ok "$env_name: Server vorbereitet, Root-SSH deaktiviert und Setup-Kopie entfernt"
+}
+
+deploy_one() {
+  local env_name="$1" host scp_host root_user root_port root_key fingerprint env_file setup_script s3_marker initial_known
+  case "$env_name" in
+    staging) host="$STAGING_SERVER_HOST"; root_user="$STAGING_ROOT_SSH_USER"; root_port="$STAGING_ROOT_SSH_PORT"; root_key="$(expand_home_path "$STAGING_ROOT_SSH_KEY_PATH")"; fingerprint="$STAGING_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/staging-server.env"; setup_script="scripts/01-setup-staging-server.sh" ;;
+    production) host="$PRODUCTION_SERVER_HOST"; root_user="$PRODUCTION_ROOT_SSH_USER"; root_port="$PRODUCTION_ROOT_SSH_PORT"; root_key="$(expand_home_path "$PRODUCTION_ROOT_SSH_KEY_PATH")"; fingerprint="$PRODUCTION_SSH_HOST_KEY_SHA256"; env_file="$REPO_ROOT/generated/production-server.env"; setup_script="scripts/02-setup-production-server.sh" ;;
     *) die "Ungültiges Target: $env_name" ;;
   esac
   scp_host="$host"; [[ "$scp_host" == *:* ]] && scp_host="[$scp_host]"
   s3_marker="$REPO_ROOT/generated/s3-$env_name.verified"
   assert_private_file "$s3_marker"
   [[ "$(awk -F= '$1=="config_sha256" {print $2}' "$s3_marker")" == "$(s3_config_sha256)" ]] || die "$env_name S3-Verifikation fehlt oder ist nach einer S3-Konfigurationsänderung veraltet."
-  for file in "$root_key" "$admin_key" "$env_file" "$REPO_ROOT/$setup_script"; do assert_file_exists "$file"; done
+  for file in "$root_key" "$env_file" "$REPO_ROOT/$setup_script"; do assert_file_exists "$file"; done
   assert_private_file "$root_key"
-  assert_private_file "$admin_key"
   assert_private_file "$env_file"
   initial_known="$REPO_ROOT/generated/known-hosts/${env_name}-initial"
-  final_known="$REPO_ROOT/generated/known-hosts/${env_name}-deploy"
 
   step "$env_name: Host Key vor erster Verbindung verifizieren"
   verify_host_key "$host" "$root_port" "$fingerprint" "$initial_known"
@@ -96,19 +133,14 @@ deploy_one() {
   step "$env_name: One-shot-Server-Setup ausführen"
   run_remote_command "$host" "$root_port" "$root_user" "$root_key" "$initial_known" "cd '$REMOTE_DIR' && bash '$setup_script' --config '$REMOTE_DIR/${env_name}-server.env'"
 
-  step "$env_name: Gehärteten Admin-Zugang verifizieren"
-  verify_host_key "$host" "$SSH_PORT" "$fingerprint" "$final_known"
-  run_remote_command "$host" "$SSH_PORT" "$ADMIN_USER" "$admin_key" "$final_known" "sudo test -f '$REMOTE_DIR/${env_name}-server-summary.md'"
-  summary_tmp="$REPO_ROOT/generated/server-summaries/${env_name}-server-summary.md"
-  scp -P "$SSH_PORT" -i "$admin_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$final_known" "$ADMIN_USER@$scp_host:$REMOTE_DIR/${env_name}-server-summary.md" "$summary_tmp"
-
-  step "$env_name: GitHub Known Host speichern und Setup-Secrets entfernen"
-  known_hosts_value="$(<"$final_known")"; vault="$REPO_ROOT/generated/customer-vault.md"
-  if [[ -f "$vault" ]]; then vault_section "$vault" "$env_name verified deploy access"; vault_block "$vault" "${prefix}_SSH_KNOWN_HOSTS" "$known_hosts_value"; vault_append_file "$vault" "$env_name Server Summary" "$summary_tmp"; fi
-  run_remote_command "$host" "$SSH_PORT" "$ADMIN_USER" "$admin_key" "$final_known" "sudo find '$REMOTE_DIR' -type f -exec shred -u {} + 2>/dev/null || true; sudo rm -rf '$REMOTE_DIR'"
-  ok "$env_name: Server vorbereitet, Root-SSH deaktiviert und Setup-Kopie entfernt"
+  finalize_one "$env_name"
 }
 
-case "$TARGET" in staging) deploy_one staging ;; production) deploy_one production ;; all) deploy_one staging; deploy_one production ;; *) die "Ungültiges Target: $TARGET" ;; esac
+if [[ "$FINALIZE" == 1 ]]; then
+  case "$TARGET" in staging) finalize_one staging ;; production) finalize_one production ;; all) finalize_one staging; finalize_one production ;; *) die "Ungültiges Target: $TARGET" ;; esac
+else
+  [[ "$RUN_REMOTE" == 1 ]] || die "Netzwerktransfer erfordert --run. Für eine Vorschau ausschließlich --dry-run verwenden."
+  case "$TARGET" in staging) deploy_one staging ;; production) deploy_one production ;; all) deploy_one staging; deploy_one production ;; *) die "Ungültiges Target: $TARGET" ;; esac
+fi
 step "Transfer abschließen"
 ok "Verifizierter Setup-Transfer abgeschlossen."

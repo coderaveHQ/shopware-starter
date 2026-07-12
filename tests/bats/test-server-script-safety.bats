@@ -73,6 +73,14 @@
   grep -q 'Require successful CI for this exact commit' "$REPO_ROOT/templates/github/deploy-production.yml.tpl"
 }
 
+@test "completed server setup can be finalized without root SSH" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  script="$REPO_ROOT/scripts/06-deploy-setup-files.sh"
+  grep -q -- '--finalize' "$script"
+  grep -q "sudo cat.*server-summary.md" "$script"
+  ! grep -q "scp .*server-summary.md" "$script"
+}
+
 @test "backup quiesces write services before the file and database snapshot" {
   REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
   quiesce_line="$(grep -n '^quiesce_writes$' "$REPO_ROOT/templates/server/backup.sh.tpl" | cut -d: -f1)"
