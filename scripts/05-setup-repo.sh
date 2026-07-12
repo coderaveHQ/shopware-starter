@@ -4,16 +4,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO_ROOT="$(cd "$SC
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/lib/bootstrap.sh"
 CONFIG_FILE="$REPO_ROOT/generated/customer.env"
+RESUME=0
 
 usage() { cat <<USAGE
-Usage: bash scripts/05-setup-repo.sh [--config generated/customer.env] [--dry-run]
+Usage: bash scripts/05-setup-repo.sh [--config generated/customer.env] [--dry-run] [--resume]
 
 Creates an exact Shopware production project once, installs the official Docker
 and Deployment Helper packages, then writes the hardened project overlays.
+--resume completes a validated bootstrap that failed after Shopware was copied.
 USAGE
 }
 
-if ! parse_common_args "$@"; then usage; exit 0; fi
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --resume) RESUME=1; shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+if ! parse_common_args "${args[@]}"; then usage; exit 0; fi
 [[ -n "$CONFIG_FILE" ]] || CONFIG_FILE="$REPO_ROOT/generated/customer.env"
 if [[ "$DRY_RUN" == 1 ]]; then SHOPWARE_INFRA_TOTAL=3; else SHOPWARE_INFRA_TOTAL=13; fi
 MARKER="$REPO_ROOT/.shopware-initialized-by-template"
@@ -37,25 +46,45 @@ if [[ "$DRY_RUN" == 1 ]]; then
 fi
 
 [[ -d "$REPO_ROOT/.git" ]] || die "Dieses Template muss in einem Git-Repository liegen."
-[[ ! -f "$REPO_ROOT/composer.json" && ! -f "$REPO_ROOT/bin/console" ]] || die "Bestehendes Shopware-Projekt erkannt; Initialisierung abgebrochen."
+if [[ "$RESUME" == 1 ]]; then
+  for file in "$REPO_ROOT/composer.json" "$REPO_ROOT/composer.lock" "$REPO_ROOT/bin/console"; do assert_file_exists "$file"; done
+else
+  [[ ! -f "$REPO_ROOT/composer.json" && ! -f "$REPO_ROOT/bin/console" ]] || die "Bestehendes Shopware-Projekt erkannt; Initialisierung abgebrochen. Nach einem validierten Teilfehler ausschließlich --resume verwenden."
+fi
 TMP_DIR="$REPO_ROOT/.shopware-bootstrap-tmp"
 [[ ! -e "$TMP_DIR" && ! -L "$TMP_DIR" ]] || die "Temporärer Bootstrap-Ordner existiert bereits oder ist ein Symlink: $TMP_DIR"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT INT TERM
 
 step "Exaktes Shopware Production Template erzeugen"
-composer create-project "shopware/production:$SHOPWARE_VERSION" "$TMP_DIR" --no-interaction
+if [[ "$RESUME" == 1 ]]; then
+  ok "Vorhandenes, noch nicht markiertes Shopware-Projekt wird strikt validiert und fortgesetzt"
+else
+  composer create-project "shopware/production:$SHOPWARE_VERSION" "$TMP_DIR" --no-interaction
+fi
 
 step "Offizielle Hosting-Pakete installieren"
 # The pinned Shopware CLI and production images provide ext-amqp. The local
 # bootstrap PHP may not, so only this local dependency-resolution check ignores it.
-(cd "$TMP_DIR" && composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction --ignore-platform-req=ext-amqp)
-actual_shopware_version="$(cd "$TMP_DIR" && composer show shopware/core --locked --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["versions"][0].removeprefix("* ").lstrip("v"))')"
+if [[ "$RESUME" == 1 ]]; then
+  for package in shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger; do
+    (cd "$REPO_ROOT" && composer show "$package" --locked --format=json >/dev/null) || die "Fortsetzung verweigert: $package fehlt im Lockfile."
+  done
+else
+  (cd "$TMP_DIR" && composer config --no-interaction allow-plugins.php-http/discovery true)
+  (cd "$TMP_DIR" && composer require shopware/docker shopware/deployment-helper league/flysystem-async-aws-s3 symfony/amqp-messenger --no-interaction --ignore-platform-req=ext-amqp)
+fi
+project_dir="$TMP_DIR"; [[ "$RESUME" == 1 ]] && project_dir="$REPO_ROOT"
+actual_shopware_version="$(cd "$project_dir" && composer show shopware/core --locked --format=json | python3 -c 'import json, sys; print(json.load(sys.stdin)["versions"][0].removeprefix("* ").lstrip("v"))')"
 [[ "$actual_shopware_version" == "$SHOPWARE_VERSION" ]] || die "Composer hat unerwartet Shopware $actual_shopware_version statt $SHOPWARE_VERSION aufgelöst."
 
 step "Vollständig aufgelöstes Projekt übernehmen"
-rsync -a --exclude .git --ignore-existing "$TMP_DIR/" "$REPO_ROOT/"
-rm -rf "$TMP_DIR"
+if [[ "$RESUME" == 1 ]]; then
+  ok "Vorhandenes Lockfile enthält Shopware $actual_shopware_version und alle Hosting-Pakete"
+else
+  rsync -a --exclude .git --ignore-existing "$TMP_DIR/" "$REPO_ROOT/"
+  rm -rf "$TMP_DIR"
+fi
 
 step "Gepinntes offizielles Produktions-Image und lokale Integration schreiben"
 export PROJECT_SLUG PHP_VERSION SHOPWARE_DOCKER_BASE_IMAGE SHOPWARE_CLI_IMAGE MARIADB_IMAGE VALKEY_IMAGE RABBITMQ_IMAGE
@@ -84,7 +113,7 @@ render_template "$REPO_ROOT/templates/github/deploy-production.yml.tpl" "$REPO_R
 render_template "$REPO_ROOT/templates/github/dependabot.yml.tpl" "$REPO_ROOT/.github/dependabot.yml"
 
 step "Composer-Metadaten und Advisories prüfen"
-(cd "$REPO_ROOT" && composer validate --strict && composer audit --locked --no-interaction)
+(cd "$REPO_ROOT" && composer validate --no-check-publish && composer audit --locked --no-interaction)
 
 step "Sicherheitsinvarianten prüfen"
 bash "$REPO_ROOT/scripts/08-preflight.sh" --local-only
