@@ -62,7 +62,7 @@ jobs:
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          version: v0.65.0
+          version: v0.72.0
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true

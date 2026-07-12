@@ -81,7 +81,7 @@ jobs:
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
         with:
           image-ref: local/shopware:${{ github.sha }}
-          version: v0.65.0
+          version: v0.72.0
           format: json
           output: shopware-vulnerabilities.json
           severity: HIGH,CRITICAL
@@ -91,7 +91,7 @@ jobs:
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
         with:
           image-ref: local/shopware:${{ github.sha }}
-          version: v0.65.0
+          version: v0.72.0
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -100,7 +100,7 @@ jobs:
         uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master pinned 2026-07-10
         with:
           image-ref: local/shopware:${{ github.sha }}
-          version: v0.65.0
+          version: v0.72.0
           format: cyclonedx
           output: shopware-sbom.cdx.json
           exit-code: "0"
