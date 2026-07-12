@@ -28,7 +28,8 @@ statements = {item["Sid"]: item for item in policy["Statement"]}
 assert statements["RuntimeObjectAccess"]["Principal"]["AWS"].endswith("11111111-1111-4111-8111-111111111111")
 assert "s3:PutObject" in statements["RuntimeObjectAccess"]["Action"]
 assert "s3:PutObjectAcl" in statements["RuntimeObjectAccess"]["Action"]
-assert statements["BackupReaderObjectAccess"]["Action"] == "s3:GetObject"
+assert "s3:GetObjectVersion" in statements["RuntimeObjectAccess"]["Action"]
+assert set(statements["BackupReaderObjectAccess"]["Action"]) == {"s3:GetObject", "s3:GetObjectVersion"}
 assert statements["PublicRead"]["Principal"] == "*"
 PY
 
@@ -52,7 +53,7 @@ import json, pathlib, sys
 policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
 statements = {item["Sid"]: item for item in policy["Statement"]}
 assert set(statements) == {"BackupWriterBucketAccess", "BackupWriterObjectAccess"}
-assert set(statements["BackupWriterObjectAccess"]["Action"]) == {"s3:GetObject", "s3:PutObject", "s3:DeleteObject"}
+assert set(statements["BackupWriterObjectAccess"]["Action"]) == {"s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"}
 assert statements["BackupWriterObjectAccess"]["Principal"]["AWS"].endswith("33333333-3333-4333-8333-333333333333")
 PY
 }

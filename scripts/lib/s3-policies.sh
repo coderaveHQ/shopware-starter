@@ -28,7 +28,7 @@ statements = [
         "Sid": "RuntimeObjectAccess",
         "Effect": "Allow",
         "Principal": {"AWS": f"arn:aws:iam:::user/{runtime_id}"},
-        "Action": ["s3:DeleteObject", "s3:GetObject", "s3:PutObject", "s3:PutObjectAcl"],
+        "Action": ["s3:DeleteObject", "s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:PutObjectAcl"],
         "Resource": object_arn,
     },
     {
@@ -42,7 +42,7 @@ statements = [
         "Sid": "BackupReaderObjectAccess",
         "Effect": "Allow",
         "Principal": {"AWS": f"arn:aws:iam:::user/{reader_id}"},
-        "Action": "s3:GetObject",
+        "Action": ["s3:GetObject", "s3:GetObjectVersion"],
         "Resource": object_arn,
     },
 ]
@@ -90,7 +90,7 @@ policy = {
             "Sid": "BackupWriterObjectAccess",
             "Effect": "Allow",
             "Principal": {"AWS": f"arn:aws:iam:::user/{writer_id}"},
-            "Action": ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"],
+            "Action": ["s3:DeleteObject", "s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"],
             "Resource": object_arn,
         },
     ],
