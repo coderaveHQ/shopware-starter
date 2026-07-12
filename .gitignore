@@ -2,6 +2,7 @@
 generated/*
 !generated/.gitkeep
 /customer.env
+/ionos-bootstrap.env
 *.secret
 *.key
 *.pem

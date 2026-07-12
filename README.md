@@ -28,6 +28,8 @@ Shopware-specific choices in this repository follow the stable 6.7 documentation
 
 Do not change Shopware versions, packages or runtime architecture from third-party tutorials. Re-check the stable official documentation and then update the pins, tests and this runbook together.
 
+IONOS contract-owned Object Storage follows the provider's current [bucket-type](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/concepts/bucket-types), [bucket-policy](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/settings/bucket-policy) and [Berlin endpoint](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/endpoints) documentation. Default bucket encryption remains an owner/admin-only operation, so the owner bootstrap credential is deliberately temporary and local-only.
+
 ## Architecture and limits
 
 Each VPS runs Caddy, Shopware Varnish, the Shopware app, a CLI message worker, a scheduled-task process, MariaDB 11.4, Valkey 8 and RabbitMQ. Public and private Shopware files live in S3-compatible storage. Encrypted database/configuration archives and a versioned mirror of Shopware files live in a separate backup bucket.
@@ -41,8 +43,9 @@ This is not a high-availability architecture. A VPS failure causes downtime. Bac
 - `generated/`, local env files, Composer auth, JWT keys and backups are excluded from Git and the Docker build context.
 - Staging and production resources and credentials must be distinct.
 - Staging and production storefront-domain allowlists are validated, non-overlapping and rendered as explicit Caddy hosts.
-- Runtime, backup-reader, backup-writer and provisioning credentials are separate.
-- App containers receive no database-root, initial-admin, provisioning or backup secrets.
+- Runtime, backup-reader and backup-writer credentials use six distinct IONOS users and generated bucket policies.
+- One temporary contract-owner/admin key configures contract-owned buckets locally and is never copied to a server.
+- App containers receive no database-root, initial-admin, owner-bootstrap or backup secrets.
 - The initial SSH host key must match an independently obtained ED25519 SHA-256 fingerprint.
 - Root SSH, passwords, forwarding and tunnelling are disabled after fresh-server setup.
 - The deployment user has no shell path to Docker and accepts only a forced, root-owned deployment command.
@@ -72,12 +75,16 @@ Do not skip or reorder these gates.
    bash scripts/00-prepare-customer.sh
    ```
 
-5. Provision and actively verify each dedicated S3 set. These commands intentionally create temporary objects and configure encryption, versioning and backup lifecycle rules:
+5. Create a temporary local IONOS owner config, then provision and actively verify each dedicated S3 set. These commands intentionally apply bucket policies, create temporary objects and configure encryption, versioning and backup lifecycle rules:
 
    ```bash
+   cp templates/customer/ionos-bootstrap.env.example ionos-bootstrap.env
+   chmod 600 ionos-bootstrap.env
    bash scripts/04-setup-s3-storage.sh --target staging --create
    bash scripts/04-setup-s3-storage.sh --target production --create
    ```
+
+   Deactivate the temporary owner key at IONOS immediately after both environments pass.
 
 6. Initialize the exact Shopware project once:
 
@@ -106,7 +113,7 @@ No script should be run against a VPS containing existing workloads. The server 
 | `00-prepare-customer.sh` | Validates config; creates isolated secrets, four SSH keys and server configs once | Yes |
 | `01-setup-staging-server.sh` | One-shot hardened staging VPS setup | Yes |
 | `02-setup-production-server.sh` | One-shot hardened production VPS setup | Yes |
-| `04-setup-s3-storage.sh` | Provisions and actively verifies isolated object storage | Yes, unless `--dry-run` |
+| `04-setup-s3-storage.sh` | Applies IONOS contract-bucket policies and actively verifies isolated object storage | Yes, unless `--dry-run` |
 | `05-setup-repo.sh` | Creates the exact Shopware production project and hardened overlays once | Yes |
 | `06-deploy-setup-files.sh` | Host-key-verified setup transfer; requires explicit `--run`, and the remote plaintext server config self-removes on exit | Network/file transfer |
 | `07-run-tests.sh` | Static tests by default; Docker and real-server tests are explicit | No by default |
@@ -142,7 +149,7 @@ The full Shopware image build, Composer audit and Trivy scan become possible onl
 
 ## Secret handling
 
-`generated/customer-vault.md` and everything under `generated/` except `.gitkeep` are plaintext setup material. Import the vault, SSH private keys and server summaries into an approved password manager. Put only the deployment values into GitHub environment secrets. Then remove the local plaintext material with the explicit project confirmation:
+`ionos-bootstrap.env`, `generated/customer-vault.md` and everything under `generated/` except `.gitkeep` are plaintext setup material. Import the vault, SSH private keys and server summaries into an approved password manager. Put only the deployment values into GitHub environment secrets. Then remove the local plaintext material with the explicit project confirmation:
 
 ```bash
 bash scripts/09-clean-sensitive-output.sh --dry-run --confirm PROJECT_SLUG

@@ -10,7 +10,7 @@
 
 @test "dockerignore excludes every generated secret class" {
   REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
-  for value in generated customer.env customer-vault.md auth.json .env.local config/jwt backups; do
+  for value in generated customer.env ionos-bootstrap.env customer-vault.md auth.json .env.local config/jwt backups; do
     grep -Fxq "$value" "$REPO_ROOT/.dockerignore"
   done
 }
@@ -47,6 +47,22 @@
   rm -f "$config"
   [ "$status" -ne 0 ]
   [[ "$output" == *"vollständig getrennt"* ]]
+}
+
+@test "IONOS owner bootstrap dry-run is required and mutation-free" {
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
+  isolated_repo="$(mktemp -d)"
+  cp -R "$REPO_ROOT/scripts" "$REPO_ROOT/templates" "$isolated_repo/"
+  mkdir "$isolated_repo/generated"
+  cp "$REPO_ROOT/tests/fixtures/customer.env" "$isolated_repo/generated/customer.env"
+  cp "$REPO_ROOT/tests/fixtures/ionos-bootstrap.env" "$isolated_repo/ionos-bootstrap.env"
+  chmod 600 "$isolated_repo/generated/customer.env" "$isolated_repo/ionos-bootstrap.env"
+  before="$(find "$isolated_repo" -type f -exec shasum -a 256 {} \; | sort)"
+  run bash "$isolated_repo/scripts/04-setup-s3-storage.sh" --target all --dry-run
+  [ "$status" -eq 0 ]
+  after="$(find "$isolated_repo" -type f -exec shasum -a 256 {} \; | sort)"
+  [ "$before" = "$after" ]
+  rm -rf "$isolated_repo"
 }
 
 @test "deployment accepts registry digests only and is CI gated" {

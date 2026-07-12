@@ -31,8 +31,8 @@ validate_s3_environment() {
   for suffix in ACCESS_KEY SECRET_KEY; do
     name="${prefix}_S3_${suffix}"; assert_no_placeholder "$name"; is_valid_external_secret "${!name}" || die "$name ist zu kurz oder enthält nicht unterstützte Sonderzeichen."
   done
-  for suffix in ACCESS_KEY SECRET_KEY; do name="${prefix}_S3_PROVISIONING_${suffix}"; assert_not_empty "$name"; assert_no_placeholder "$name"; is_valid_external_secret "${!name}" || die "$name ist zu kurz oder enthält nicht unterstützte Sonderzeichen."; done
   for suffix in ACCESS_KEY SECRET_KEY; do name="${prefix}_S3_BACKUP_READER_${suffix}"; assert_not_empty "$name"; assert_no_placeholder "$name"; is_valid_external_secret "${!name}" || die "$name ist zu kurz oder enthält nicht unterstützte Sonderzeichen."; done
+  for suffix in RUNTIME_CONTRACT_USER_ID BACKUP_READER_CONTRACT_USER_ID; do name="${prefix}_S3_${suffix}"; assert_not_empty "$name"; assert_no_placeholder "$name"; is_valid_contract_user_id "${!name}" || die "$name ist keine gültige IONOS Contract User ID."; done
   for suffix in ENDPOINT PUBLIC_BUCKET PRIVATE_BUCKET PUBLIC_URL; do name="${prefix}_S3_${suffix}"; assert_no_placeholder "$name"; done
 
   for suffix in ENDPOINT REGION BUCKET ACCESS_KEY SECRET_KEY HEALTHCHECK_URL; do name="${prefix}_BACKUP_S3_${suffix}"; [[ "$suffix" == HEALTHCHECK_URL ]] && name="${prefix}_BACKUP_HEALTHCHECK_URL"; assert_not_empty "$name"; done
@@ -50,6 +50,17 @@ validate_s3_environment() {
   name="${prefix}_BACKUP_HEALTHCHECK_URL"; assert_no_placeholder "$name"
   name="${prefix}_RESTORE_HEALTHCHECK_URL"; assert_no_placeholder "$name"
   for suffix in ACCESS_KEY SECRET_KEY; do name="${prefix}_BACKUP_S3_${suffix}"; is_valid_external_secret "${!name}" || die "$name ist zu kurz oder enthält nicht unterstützte Sonderzeichen."; done
+  name="${prefix}_BACKUP_S3_WRITER_CONTRACT_USER_ID"; assert_not_empty "$name"; assert_no_placeholder "$name"; is_valid_contract_user_id "${!name}" || die "$name ist keine gültige IONOS Contract User ID."
+}
+
+validate_ionos_bootstrap_config() {
+  local name
+  for name in IONOS_S3_OWNER_ACCESS_KEY IONOS_S3_OWNER_SECRET_KEY; do
+    assert_not_empty "$name"
+    assert_no_placeholder "$name"
+    is_valid_external_secret "${!name}" || die "$name ist zu kurz oder enthält nicht unterstützte Sonderzeichen."
+  done
+  assert_distinct "$IONOS_S3_OWNER_ACCESS_KEY" "$IONOS_S3_OWNER_SECRET_KEY" "IONOS Owner Access Key und Secret Key müssen verschieden sein."
 }
 
 validate_optional_store_config() {
@@ -123,10 +134,12 @@ validate_customer_config() {
   is_valid_uint_range "$RESTORE_TEST_MINUTE" 0 59 || die "RESTORE_TEST_MINUTE ist ungültig."
   buckets=("$STAGING_S3_PUBLIC_BUCKET" "$STAGING_S3_PRIVATE_BUCKET" "$STAGING_BACKUP_S3_BUCKET" "$PRODUCTION_S3_PUBLIC_BUCKET" "$PRODUCTION_S3_PRIVATE_BUCKET" "$PRODUCTION_BACKUP_S3_BUCKET")
   for ((i=0; i<${#buckets[@]}; i++)); do for ((j=i+1; j<${#buckets[@]}; j++)); do first="${buckets[$i]}"; second="${buckets[$j]}"; assert_distinct "$first" "$second" "Alle Runtime- und Backup-Buckets müssen eindeutig sein: $first"; done; done
-  keys=("$STAGING_S3_ACCESS_KEY" "$STAGING_S3_BACKUP_READER_ACCESS_KEY" "$STAGING_BACKUP_S3_ACCESS_KEY" "$STAGING_S3_PROVISIONING_ACCESS_KEY" "$PRODUCTION_S3_ACCESS_KEY" "$PRODUCTION_S3_BACKUP_READER_ACCESS_KEY" "$PRODUCTION_BACKUP_S3_ACCESS_KEY" "$PRODUCTION_S3_PROVISIONING_ACCESS_KEY")
-  for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Runtime, Backup und Provisioning benötigen getrennte Access Keys."; done; done
-  keys=("$STAGING_S3_SECRET_KEY" "$STAGING_S3_BACKUP_READER_SECRET_KEY" "$STAGING_BACKUP_S3_SECRET_KEY" "$STAGING_S3_PROVISIONING_SECRET_KEY" "$PRODUCTION_S3_SECRET_KEY" "$PRODUCTION_S3_BACKUP_READER_SECRET_KEY" "$PRODUCTION_BACKUP_S3_SECRET_KEY" "$PRODUCTION_S3_PROVISIONING_SECRET_KEY")
-  for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Runtime, Backup und Provisioning benötigen getrennte Secret Keys."; done; done
+  keys=("$STAGING_S3_ACCESS_KEY" "$STAGING_S3_BACKUP_READER_ACCESS_KEY" "$STAGING_BACKUP_S3_ACCESS_KEY" "$PRODUCTION_S3_ACCESS_KEY" "$PRODUCTION_S3_BACKUP_READER_ACCESS_KEY" "$PRODUCTION_BACKUP_S3_ACCESS_KEY")
+  for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Runtime-, Reader- und Writer-Rollen benötigen getrennte Access Keys."; done; done
+  keys=("$STAGING_S3_SECRET_KEY" "$STAGING_S3_BACKUP_READER_SECRET_KEY" "$STAGING_BACKUP_S3_SECRET_KEY" "$PRODUCTION_S3_SECRET_KEY" "$PRODUCTION_S3_BACKUP_READER_SECRET_KEY" "$PRODUCTION_BACKUP_S3_SECRET_KEY")
+  for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Runtime-, Reader- und Writer-Rollen benötigen getrennte Secret Keys."; done; done
+  keys=("$STAGING_S3_RUNTIME_CONTRACT_USER_ID" "$STAGING_S3_BACKUP_READER_CONTRACT_USER_ID" "$STAGING_BACKUP_S3_WRITER_CONTRACT_USER_ID" "$PRODUCTION_S3_RUNTIME_CONTRACT_USER_ID" "$PRODUCTION_S3_BACKUP_READER_CONTRACT_USER_ID" "$PRODUCTION_BACKUP_S3_WRITER_CONTRACT_USER_ID")
+  for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Jede Object-Storage-Rolle benötigt eine eigene Contract User ID."; done; done
   keys=("$STAGING_BACKUP_HEALTHCHECK_URL" "$STAGING_RESTORE_HEALTHCHECK_URL" "$PRODUCTION_BACKUP_HEALTHCHECK_URL" "$PRODUCTION_RESTORE_HEALTHCHECK_URL")
   for ((i=0; i<${#keys[@]}; i++)); do for ((j=i+1; j<${#keys[@]}; j++)); do first="${keys[$i]}"; second="${keys[$j]}"; assert_distinct "$first" "$second" "Backup und Restore benötigen vier unabhängige Monitoring-URLs."; done; done
   ok "Kundenkonfiguration vollständig und isoliert validiert"

@@ -30,11 +30,19 @@ Shopware 6.7 stable documentation is the only source of truth for Shopware-speci
 
 The template currently requires PHP 8.4, MariaDB 11.4 and an exact Shopware 6.7 patch. An update is a reviewed code change: re-check official docs, update Composer/image pins, run the complete suite and test staging before production.
 
+IONOS-specific Object Storage behavior follows the current official provider documentation:
+
+- [Contract-owned and user-owned bucket types](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/concepts/bucket-types)
+- [Contract User ID bucket policies](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/settings/bucket-policy)
+- [Berlin `eu-central-3` endpoint](https://docs.ionos.com/cloud/storage-and-backup/ionos-object-storage/endpoints)
+- [Contract-owned bucket API and owner-only encryption](https://api.ionos.com/docs/object-storage-contract-owned-buckets/v2/)
+
 ## 3. Architecture and trust boundaries
 
 ```text
 developer workstation
   ├── non-executable customer config
+  ├── temporary IONOS owner bootstrap config
   ├── generated plaintext setup vault and four SSH keys
   └── Git repository without secrets
           │
@@ -53,7 +61,7 @@ S3-compatible storage per environment
   └── dedicated versioned backup bucket: backup writer only
 ```
 
-The provisioning credential is local-only. It configures bucket encryption, versioning and lifecycle rules and removes every version of temporary probe objects. It is never written to a server runtime env file.
+IONOS contract-owned buckets cannot delegate default-encryption management through bucket policies. One temporary contract-owner/admin key therefore configures all six buckets, applies least-privilege policies for the six service users and removes every version of temporary probe objects. It lives only in ignored `ionos-bootstrap.env`, is never copied to a server or vault, and must be deactivated after successful verification.
 
 ## 4. External prerequisites
 
@@ -64,16 +72,16 @@ Complete these before running a mutating script:
 - An initial root SSH key for each fresh VPS.
 - Each VPS's ED25519 SHA-256 host fingerprint obtained independently from the provider console, not from the first network connection.
 - Six dedicated buckets: public, private and backup for each environment.
-- Four credentials per environment:
+- Three service credentials per environment, each backed by a distinct IONOS Contract User ID:
   - runtime: list/read/write/delete only on that environment's public/private buckets;
   - backup reader: list/read only on those runtime buckets;
   - backup writer: list/read/write/delete only on the dedicated backup bucket;
-  - provisioning: bucket settings, lifecycle, version listing and version deletion for that environment's three buckets.
+- One temporary contract-owner/admin Object Storage key pair for encryption, versioning, lifecycle and policy provisioning across the six contract-owned buckets.
 - Independent backup-success and restore-verification monitoring URLs for staging and production.
 - A private GitHub repository capable of publishing to GHCR.
 - Local `bash`, Python 3, OpenSSL, OpenSSH, Git, Composer 2.2+, AWS CLI, Docker with Compose/Buildx, `rsync`, `curl` and `rg`.
 
-Never reuse a bucket, access key, secret, server, domain, SSH deploy key, backup passphrase or monitoring URL between staging and production. Validation rejects reused buckets and access keys, but the operator must also enforce least-privilege policies at the provider.
+Never reuse a bucket, service access key, secret, Contract User ID, server, domain, SSH deploy key, backup passphrase or monitoring URL between staging and production. The single owner key is the deliberate temporary exception: it configures both environments, is excluded from generated/server configs and is deactivated immediately after S3 verification.
 
 ## 5. Read-only repository baseline
 
@@ -103,6 +111,7 @@ Replace every `CHANGE_ME` and example value. Important constraints:
 - `STAGING_DOMAIN` and `PRODUCTION_DOMAIN` are the canonical `APP_URL` and deployment healthcheck targets.
 - `STAGING_STOREFRONT_DOMAINS` and `PRODUCTION_STOREFRONT_DOMAINS` are comma-separated allowlists without whitespace. Each canonical domain must occur in its environment's allowlist; duplicates, invalid domains and cross-environment reuse are rejected.
 - Staging and production hosts, storefront domains, buckets and access keys are distinct.
+- Runtime, backup-reader and backup-writer Contract User IDs are distinct and use IONOS contract-owned bucket identities.
 - `INSTALL_BASE_DIR` stays `/opt/shopware`; root SSH disabling stays enabled.
 - The Store account fields may be empty. If supplied, staging and production values must be intentionally reviewed.
 - S3 endpoints and healthcheck URLs use HTTPS.
@@ -138,6 +147,13 @@ It also generates independent app, admin, database-root, database-app, Valkey, R
 
 ## 7. Object storage gate
 
+Create the ignored temporary owner config and enter the contract-owner/admin key pair. Do not use any of the six service keys here:
+
+```bash
+cp templates/customer/ionos-bootstrap.env.example ionos-bootstrap.env
+chmod 600 ionos-bootstrap.env
+```
+
 Dry-run performs no network operation:
 
 ```bash
@@ -155,19 +171,20 @@ For each environment it:
 
 1. Creates missing dedicated buckets only with `--create`.
 2. Enables versioning and default AES-256 server-side encryption.
-3. Replaces the dedicated backup bucket lifecycle with repository-managed rules:
+3. Renders and applies deterministic policies for runtime, backup-reader and backup-writer Contract User IDs.
+4. Makes only the public runtime bucket anonymously readable; private and backup buckets remain private.
+5. Replaces the dedicated backup bucket lifecycle with repository-managed rules:
    - encrypted database/config archives expire after `BACKUP_RETENTION_DAYS`;
    - current mirrored Shopware files remain available;
    - noncurrent file versions expire after the retention period.
-4. Proves runtime public/private write, read and delete access.
-5. Proves public objects are public and private/backup objects are not anonymous.
-6. Proves the backup reader can list/read but cannot write/delete runtime objects.
-7. Proves the backup writer can list/read/write/delete only the backup bucket.
-8. Proves runtime and backup credentials cannot cross their trust boundary.
-9. Removes all versions and delete markers created by the probes.
-10. Writes a config-hash-bound `generated/s3-<environment>.verified` marker.
+6. Proves runtime public/private write, read and delete access.
+7. Proves the backup reader can list/read but cannot write/delete runtime objects.
+8. Proves the backup writer can list/read/write/delete only the backup bucket.
+9. Proves role boundaries and, with `--target all`, bidirectional staging/production isolation.
+10. Removes all versions and delete markers created by the probes.
+11. Writes a config-hash-bound `generated/s3-<environment>.verified` marker.
 
-Use a dedicated backup bucket: the lifecycle operation intentionally owns its lifecycle configuration. A config change invalidates the marker and blocks external preflight until the probes are rerun.
+Use a dedicated backup bucket: the lifecycle operation intentionally owns its lifecycle configuration. A config change invalidates the marker and blocks external preflight until the probes are rerun. After both markers exist, deactivate the owner key at IONOS; re-enable or rotate it only for a reviewed bucket-policy/configuration change.
 
 ## 8. One-shot Shopware initialization
 
@@ -360,7 +377,7 @@ bash scripts/09-clean-sensitive-output.sh --dry-run --confirm PROJECT_SLUG
 bash scripts/09-clean-sensitive-output.sh --confirm PROJECT_SLUG
 ```
 
-This removes local `customer.env`, generated customer/server configs, vault and generated SSH keys. It cannot guarantee physical erasure from SSD/copy-on-write media or workstation backups. Use full-disk encryption and exclude this directory from cloud sync and backup before generating secrets.
+This removes local `customer.env`, `ionos-bootstrap.env`, generated customer/server configs, vault and generated SSH keys. It cannot guarantee physical erasure from SSD/copy-on-write media or workstation backups. Use full-disk encryption and exclude this directory from cloud sync and backup before generating secrets.
 
 ## 16. Final go/no-go checklist
 

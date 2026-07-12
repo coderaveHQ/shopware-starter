@@ -6,7 +6,55 @@ setup() {
   source "$REPO_ROOT/scripts/lib/checks.sh"
   source "$REPO_ROOT/scripts/lib/config.sh"
   source "$REPO_ROOT/scripts/lib/templates.sh"
+  source "$REPO_ROOT/scripts/lib/s3-policies.sh"
   DRY_RUN=0
+}
+
+@test "IONOS Contract User IDs use the contract-owned bucket identity format" {
+  is_valid_contract_user_id "31000000:11111111-1111-4111-8111-111111111111"
+  ! is_valid_contract_user_id "11111111-1111-4111-8111-111111111111"
+  ! is_valid_contract_user_id "31000000:NOT-A-UUID"
+}
+
+@test "runtime bucket policy separates runtime reader and public access" {
+  policy="$TEST_TMPDIR/runtime-policy.json"
+  render_runtime_bucket_policy "$policy" "customer-staging-public" \
+    "31000000:11111111-1111-4111-8111-111111111111" \
+    "31000000:22222222-2222-4222-8222-222222222222" true
+  python3 - "$policy" <<'PY'
+import json, pathlib, sys
+policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
+statements = {item["Sid"]: item for item in policy["Statement"]}
+assert statements["RuntimeObjectAccess"]["Principal"]["AWS"].endswith("11111111-1111-4111-8111-111111111111")
+assert "s3:PutObject" in statements["RuntimeObjectAccess"]["Action"]
+assert "s3:PutObjectAcl" in statements["RuntimeObjectAccess"]["Action"]
+assert statements["BackupReaderObjectAccess"]["Action"] == "s3:GetObject"
+assert statements["PublicRead"]["Principal"] == "*"
+PY
+
+  render_runtime_bucket_policy "$policy" "customer-staging-private" \
+    "31000000:11111111-1111-4111-8111-111111111111" \
+    "31000000:22222222-2222-4222-8222-222222222222" false
+  run python3 - "$policy" <<'PY'
+import json, pathlib, sys
+policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert "PublicRead" not in {item["Sid"] for item in policy["Statement"]}
+PY
+  [ "$status" -eq 0 ]
+}
+
+@test "backup bucket policy grants only writer object access" {
+  policy="$TEST_TMPDIR/backup-policy.json"
+  render_backup_bucket_policy "$policy" "customer-staging-backups" \
+    "31000000:33333333-3333-4333-8333-333333333333"
+  python3 - "$policy" <<'PY'
+import json, pathlib, sys
+policy = json.loads(pathlib.Path(sys.argv[1]).read_text())
+statements = {item["Sid"]: item for item in policy["Statement"]}
+assert set(statements) == {"BackupWriterBucketAccess", "BackupWriterObjectAccess"}
+assert set(statements["BackupWriterObjectAccess"]["Action"]) == {"s3:GetObject", "s3:PutObject", "s3:DeleteObject"}
+assert statements["BackupWriterObjectAccess"]["Principal"]["AWS"].endswith("33333333-3333-4333-8333-333333333333")
+PY
 }
 teardown() { rm -rf "$TEST_TMPDIR"; }
 

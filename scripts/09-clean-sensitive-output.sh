@@ -11,8 +11,8 @@ assert_file_exists "$CONFIG_FILE"
 assert_private_file "$CONFIG_FILE"
 load_env_file "$CONFIG_FILE" "${GENERATED_CUSTOMER_CONFIG_KEYS[@]}"
 [[ "$CONFIRMATION" == "$PROJECT_SLUG" ]] || die "Nach Passwort-Manager-Import mit --confirm $PROJECT_SLUG bestätigen."
-if [[ "$DRY_RUN" == 1 ]]; then log "[DRY-RUN] Würde customer.env, Vault, Server-Configs und lokale SSH Private Keys entfernen."; exit 0; fi
-for file in "$REPO_ROOT/customer.env" "$REPO_ROOT/generated/customer.env" "$REPO_ROOT/generated/staging-server.env" "$REPO_ROOT/generated/production-server.env" "$REPO_ROOT/generated/customer-vault.md" "$REPO_ROOT/generated/ssh"/*; do
+if [[ "$DRY_RUN" == 1 ]]; then log "[DRY-RUN] Würde customer.env, ionos-bootstrap.env, Vault, Server-Configs und lokale SSH Private Keys entfernen."; exit 0; fi
+for file in "$REPO_ROOT/customer.env" "$REPO_ROOT/ionos-bootstrap.env" "$REPO_ROOT/generated/customer.env" "$REPO_ROOT/generated/staging-server.env" "$REPO_ROOT/generated/production-server.env" "$REPO_ROOT/generated/customer-vault.md" "$REPO_ROOT/generated/ssh"/*; do
   [[ -e "$file" ]] || continue
   if command_exists shred && [[ -f "$file" ]]; then shred -u "$file" || rm -f "$file"; else rm -f "$file"; fi
 done

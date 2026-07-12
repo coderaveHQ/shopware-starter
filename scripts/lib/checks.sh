@@ -61,6 +61,7 @@ is_valid_install_base() { [[ "$1" == "/opt/shopware" ]]; }
 is_valid_install_dir() { [[ "$1" =~ ^/opt/shopware/[a-z0-9][a-z0-9-]*/(staging|production)$ ]]; }
 is_safe_env_value() { [[ "$1" =~ ^[A-Za-z0-9._~!@#%+=:,/\?-]*$ ]]; }
 is_valid_external_secret() { [[ "${#1}" -ge 8 ]] && is_safe_env_value "$1"; }
+is_valid_contract_user_id() { [[ "$1" =~ ^[0-9]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; }
 
 is_valid_timezone() {
   python3 - "$1" <<'PYTIMEZONE' >/dev/null

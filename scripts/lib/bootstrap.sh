@@ -21,6 +21,8 @@ if [[ -d "$SCRIPT_DIR/lib" ]]; then REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/..
 . "$REPO_ROOT/scripts/lib/vault.sh"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/lib/templates.sh"
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/lib/s3-policies.sh"
 
 # These globals are consumed by the calling script after this library is sourced.
 # shellcheck disable=SC2034

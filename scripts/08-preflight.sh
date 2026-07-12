@@ -8,8 +8,8 @@ LOCAL_ONLY=0
 
 step "Secret- und Build-Kontext-Invarianten prüfen"
 require_command rg
-for pattern in generated customer.env customer-vault.md auth.json .env.local config/jwt backups; do grep -Fxq "$pattern" "$REPO_ROOT/.dockerignore" || die ".dockerignore schließt $pattern nicht exakt aus."; done
-for pattern in customer.env .env.local .shopware-project.local.yml auth.json; do git -C "$REPO_ROOT" check-ignore -q "$pattern" || die "$pattern ist nicht git-ignored."; done
+for pattern in generated customer.env ionos-bootstrap.env customer-vault.md auth.json .env.local config/jwt backups; do grep -Fxq "$pattern" "$REPO_ROOT/.dockerignore" || die ".dockerignore schließt $pattern nicht exakt aus."; done
+for pattern in customer.env ionos-bootstrap.env .env.local .shopware-project.local.yml auth.json; do git -C "$REPO_ROOT" check-ignore -q "$pattern" || die "$pattern ist nicht git-ignored."; done
 [[ "$(git -C "$REPO_ROOT" ls-files generated | tr '\n' ' ')" == "generated/.gitkeep " ]] || die "generated/ enthält getrackte Dateien."
 ! rg -n 'StrictHostKeyChecking=accept-new|source[[:space:]]+.*\.env|\.[[:space:]]+"?\$file' "$REPO_ROOT/scripts" -g '!08-preflight.sh' >/dev/null || die "Unsichere Konfigurations- oder SSH-Primitive gefunden."
 
@@ -29,6 +29,8 @@ step "Netzwerk-, Storage- und Deployment-Invarianten prüfen"
 grep -Fq '127.0.0.1:3306:3306' "$REPO_ROOT/templates/docker/compose.local.yaml.tpl" || die "Lokale DB ist nicht loopback-only."
 grep -Fq '127.0.0.1:6379:6379' "$REPO_ROOT/templates/docker/compose.local.yaml.tpl" || die "Lokales Valkey ist nicht loopback-only."
 ! rg -n 'ENABLE_(S3|RABBITMQ|VARNISH)' "$REPO_ROOT" >/dev/null || die "Nicht implementierte Feature-Toggles gefunden."
+! rg -n 'S3_PROVISIONING_(ACCESS|SECRET)_KEY' "$REPO_ROOT" >/dev/null || die "Veraltete S3-Provisioner-Zugangsdaten gefunden."
+! rg -n 'IONOS_S3_OWNER_(ACCESS|SECRET)_KEY' "$REPO_ROOT/templates/server" "$REPO_ROOT/templates/docker" "$REPO_ROOT/templates/shopware" >/dev/null || die "Temporärer IONOS Owner-Key würde in Server-Artefakte gelangen."
 grep -Fq 'BACKUP_S3_BUCKET' "$REPO_ROOT/templates/server/backup.sh.tpl" || die "Offsite Backup fehlt."
 grep -Fq 'openssl enc -aes-256-cbc' "$REPO_ROOT/templates/server/backup.sh.tpl" || die "Backup-Verschlüsselung fehlt."
 grep -Fq 'hmac.new' "$REPO_ROOT/templates/server/backup.sh.tpl" || die "Authentifizierte Backup-Integritätsprüfung fehlt."

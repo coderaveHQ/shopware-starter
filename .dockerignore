@@ -13,6 +13,7 @@ LICENSE
 
 # Customer configuration and all possible secret material.
 customer.env
+ionos-bootstrap.env
 customer-vault.md
 secrets.txt
 auth.json
