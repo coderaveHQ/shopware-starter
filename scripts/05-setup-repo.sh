@@ -40,7 +40,7 @@ validate_customer_config
 [[ ! -e "$MARKER" ]] || die "Shopware-Projekt wurde bereits initialisiert; das One-shot-Skript wird nicht erneut ausgeführt."
 
 step "Lokale Werkzeuge prüfen"
-require_not_root; require_command git; require_command python3; require_command composer; require_command rsync
+require_not_root; require_command git; require_command python3; require_command composer; require_command rsync; require_command rg
 if command_exists docker; then ok "Docker vorhanden"; else warn "Docker fehlt; der verpflichtende Image-Test kann erst später erfolgen."; fi
 
 if [[ "$DRY_RUN" == 1 ]]; then
